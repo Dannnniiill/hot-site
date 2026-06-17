@@ -7,7 +7,7 @@ export const ABOUT = 'about';
 export const SERVICES = 'services';
 export const CONTACTS = 'contacts';
 export const PROMOTIONS = 'promotions';
-export const BASE_URL = 'https://апи.отель-Комфорт.рф';
+export const BASE_URL = 'https://hotel-backend-6tq0.onrender.com';
 
 export const cyrillicPattern = /^[\u0400-\u04FF]+$/;
 export const telPattern = /^(\s*)?(\+)?([- _():=+]?\d[- _():=+]?){10,14}(\s*)?$/;
