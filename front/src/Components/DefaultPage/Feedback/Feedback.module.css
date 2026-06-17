@@ -1,0 +1,155 @@
+.feedback {
+	--accent-color: #7a5d50;
+
+	padding: 6.25rem 10.31rem;
+	background: var(--grey-color, #fff9f8);
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 4rem;
+	box-sizing: border-box;
+	overflow: hidden;
+}
+
+.left__side {
+	width: 42%;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 1.88rem;
+	flex-shrink: 0;
+}
+
+.feedback > img {
+	width: 50%;
+	height: 42rem;
+	object-fit: cover;
+	object-position: center;
+	border-radius: 0.75rem;
+	display: block;
+	flex-shrink: 0;
+}
+
+.block__title {
+	margin-top: 1.3rem;
+	color: var(--accent-color, #875b52);
+	font-size: 1.625rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 150%;
+	width: 29rem;
+	max-width: 100%;
+}
+
+.primary__btn {
+	border-radius: 0.5rem;
+	background: var(--accent-color, #875b52);
+	box-shadow: -2px 4px 5px 0 rgba(148, 93, 60, 0.06);
+	padding: 0.75rem 2.44rem;
+	color: var(--text-color, #fff);
+	text-align: center;
+	font-family: 'Noto Sans';
+	font-size: 1rem;
+	font-style: normal;
+	font-weight: 600;
+	line-height: 160%;
+	margin-top: 1.5rem;
+	width: 13.4375rem;
+}
+
+.checkbox {
+	display: flex;
+	gap: 0.3rem;
+	color: var(--accent-color, #875b52);
+	font-family: 'Noto Sans';
+	font-size: 1rem;
+	font-style: normal;
+	font-weight: 400;
+	line-height: 160%;
+}
+
+.form {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 1.8rem;
+}
+
+.underline__text {
+	text-decoration: underline;
+}
+
+@media (max-width: 1280px) {
+	.feedback {
+		padding: 6.25rem 5rem;
+		gap: 3rem;
+	}
+
+	.feedback > img {
+		height: 36rem;
+	}
+}
+
+@media (max-width: 900px) {
+	.feedback {
+		flex-direction: column;
+		padding: 4.8rem 1.5rem;
+		align-items: center;
+		gap: 2rem;
+		background-image: none;
+	}
+
+	.left__side {
+		width: 100%;
+	}
+
+	.feedback > img {
+		width: 100%;
+		height: 20rem;
+		order: 2;
+	}
+
+	.form {
+		order: 1;
+	}
+}
+
+@media (max-width: 460px) {
+	.feedback {
+		flex-direction: column;
+		padding: 4.38rem 1.25rem;
+		align-items: center;
+		background-image: url('./../../../Img/feedback__bg.png');
+		background-size: cover;
+		background-position: center;
+	}
+
+	.feedback > img {
+		display: none;
+	}
+
+	.left__side {
+		width: 100%;
+	}
+
+	.form {
+		border-radius: 0.5rem;
+		background: var(--grey-color, #fff9f8);
+		padding: 1.5rem 1.1rem;
+		gap: 1rem;
+	}
+
+	.block__title {
+		font-size: 1.5rem;
+		font-weight: 500;
+		line-height: 130%;
+		text-align: center;
+		width: 100%;
+		margin-top: 0;
+	}
+
+	.primary__btn {
+		width: 100%;
+		margin-top: 1.5rem;
+	}
+}

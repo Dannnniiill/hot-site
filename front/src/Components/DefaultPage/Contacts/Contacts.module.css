@@ -1,0 +1,174 @@
+.contacts {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.contacts__block {
+	padding: 6.25rem 10.31rem;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 5rem;
+	box-sizing: border-box;
+}
+
+.list {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0;
+}
+
+.list__item {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	align-items: center;
+	text-align: center;
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.item__border {
+	width: 0.0625rem;
+	height: 12.5rem;
+	flex-shrink: 0;
+	background: var(--accent-color, #956446);
+}
+
+.item__title {
+	color: var(--accent-color, #956446);
+	font-family: 'Noto Sans';
+	font-size: 1.375rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 160%;
+}
+
+.item__text {
+	color: var(--accent-color, #956446);
+	text-align: center;
+	font-family: 'Noto Sans';
+	font-size: 1rem;
+	font-style: normal;
+	font-weight: 400;
+	line-height: 160%;
+	word-break: break-word;
+	overflow-wrap: anywhere;
+	text-decoration: none;
+}
+
+@media (max-width: 1280px) {
+	.contacts__block {
+		padding: 6.25rem 5rem;
+	}
+}
+
+@media (max-width: 768px) {
+	.contacts__block {
+		padding: 5rem 1.5rem;
+		gap: 3rem;
+	}
+
+	.list {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1.5rem 1rem;
+		align-items: stretch;
+	}
+
+	.item__border {
+		display: none;
+	}
+
+	.list__item {
+		width: 100%;
+		min-height: 8.5rem;
+		justify-content: flex-start;
+		padding: 0 0.25rem;
+		box-sizing: border-box;
+	}
+
+	.item__title {
+		font-size: 1.2rem;
+		line-height: 140%;
+	}
+
+	.item__text {
+		font-size: 0.96rem;
+		line-height: 155%;
+	}
+
+	.contacts__block :global(.ymaps-2-1-79-map) {
+		height: 28rem !important;
+	}
+}
+
+@media (max-width: 568px) {
+	.contacts__block {
+		padding: 4.38rem 1.25rem;
+		align-items: center;
+		gap: 2.5rem;
+	}
+
+	.list {
+		grid-template-columns: 1fr 1fr;
+		gap: 1.4rem 0.9rem;
+	}
+
+	.list__item {
+		min-height: auto;
+		padding: 0;
+	}
+
+	.item__title {
+		font-size: 1.12rem;
+	}
+
+	.item__text {
+		font-size: 0.92rem;
+		line-height: 150%;
+	}
+
+	.contacts__block :global(.ymaps-2-1-79-map) {
+		height: 22rem !important;
+	}
+}
+
+@media (max-width: 420px) {
+	.contacts__block {
+		padding: 4rem 1rem;
+		gap: 2.25rem;
+	}
+
+	.list {
+		grid-template-columns: 1fr;
+		gap: 1.2rem;
+	}
+
+	.list__item {
+		padding-bottom: 0.9rem;
+		border-bottom: 1px solid rgba(149, 100, 70, 0.18);
+	}
+
+	.list__item:last-child {
+		border-bottom: none;
+		padding-bottom: 0;
+	}
+
+	.item__title {
+		font-size: 1.08rem;
+	}
+
+	.item__text {
+		font-size: 0.9rem;
+	}
+
+	.contacts__block :global(.ymaps-2-1-79-map) {
+		height: 19rem !important;
+	}
+}

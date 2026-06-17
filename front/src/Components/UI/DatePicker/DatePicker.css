@@ -1,0 +1,220 @@
+.calendar {
+	position: absolute;
+
+	border-radius: 5px;
+	text-transform: capitalize;
+	background-color: var(--background-color-calendar);
+
+	padding: 0.3rem;
+}
+
+.calendar__header {
+	position: relative;
+	border-radius: 5px 5px 0 0;
+	background-color: var(--background-color-calendar-header);
+	color: var(--ui-accent, #875b52);
+	/* text small bold */
+	font-family: ' Noto Sans';
+	font-size: 1rem;
+	font-style: normal;
+	font-weight: 700;
+	line-height: 160%; /* 1.6rem */
+	padding: 10px;
+	display: flex;
+	justify-content: space-around;
+	align-items: center;
+}
+
+.calendar__header__title {
+	cursor: pointer;
+}
+
+.calendar__header__arrow__left {
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.calendar__header__arrow__right {
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transform: rotate(-180deg);
+}
+
+.calendar__body {
+	border-radius: 0 0 5px 5px;
+	padding: 5px;
+}
+
+.calendar__week__names {
+	height: 20px;
+	font-weight: 600;
+	font-size: 8px;
+	color: var(--color-additional);
+	text-align: center;
+	align-items: center;
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 1px 1px;
+}
+
+.calendar__days {
+	font-size: 10px;
+	font-weight: 400;
+	color: var(--color-text);
+	text-align: center;
+	display: grid;
+	text-align: center;
+	align-items: center;
+	grid-template-columns: repeat(7, 1fr);
+	grid-template-rows: 1fr;
+}
+
+.calendar__day {
+	padding: 5.5px 0px;
+	cursor: pointer;
+	width: 2.5rem;
+	height: 2.5rem;
+	border: 1px solid white;
+
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.calendar__additional__day {
+	padding: 5.5px;
+	font-weight: 300;
+	cursor: pointer;
+	color: var(--color-placeholder);
+}
+
+.calendar__past__day {
+	position: relative;
+	color: var(--pink-color);
+}
+
+.calendar__past__day::after {
+	content: ' ';
+	position: absolute;
+	width: 1rem;
+	height: 1px;
+	background-color: var(--pink-color);
+}
+
+.calendar__pick__item {
+	padding: 9px 0px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	cursor: pointer;
+	border-radius: 5px;
+	border: 1px solid white;
+	width: 5.8rem;
+}
+
+.calendar__pick__item:hover {
+	border-radius: 10px;
+	border: 1px solid var(--accent-color);
+}
+
+.calendar__today__item {
+	border-radius: 10px;
+	border-color: var(--accent-color);
+}
+
+.calendar__selected__item {
+	color: var(--text-color);
+	border-radius: 10px;
+	background-color: var(--accent-color);
+}
+.calendar__selected__item:hover {
+	border-radius: 10px;
+	border: 1px solid var(--accent-color);
+}
+
+.calendar__pick__items__container {
+	font-weight: 400;
+	color: var(--color-text);
+	text-align: center;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	grid-template-rows: repeat(4, 1fr);
+	font-size: 12px;
+	gap: 1rem;
+}
+
+.calendar__unchoosable__year {
+	font-weight: 300;
+	padding: 9px 16px;
+	color: var(--color-placeholder);
+	width: 5.8rem;
+}
+
+.calendar__day:hover {
+	border-radius: 10px;
+	background-color: var(--pink-color);
+	color: var(--accent-color);
+	border: 1px solid var(--pink-color);
+}
+
+.calendar__past__day:hover {
+	background-color: white;
+	cursor: not-allowed;
+	border-color: white;
+}
+
+@media (max-width: 460px) {
+	.calendar__pick__items__container {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.calendar__header__title {
+		font-size: 0.935rem;
+	}
+
+	.calendar__day {
+		font-size: 0.935rem;
+	}
+
+	.calendar__day:hover {
+		color: var(--text-color);
+		border-radius: 10px;
+		background-color: var(--accent-color);
+	}
+
+	.calendar__week_name {
+		font-size: 0.935rem;
+		width: 2.5rem;
+		text-align: center;
+	}
+
+	.calendar__pick__item {
+		font-size: 0.935rem;
+	}
+
+	.calendar__week__names {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 11px;
+		margin: 0 6px;
+	}
+	.calendar__week_item {
+		font-size: 0.935rem;
+	}
+
+	.calendar__additional__day {
+		padding: 5.5px 0;
+	}
+
+	.calendar {
+		border: 1px solid var(--accent-color, #875b52);
+	}
+}

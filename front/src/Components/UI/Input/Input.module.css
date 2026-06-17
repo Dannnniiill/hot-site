@@ -1,0 +1,42 @@
+.input__form {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	width: 100%;
+}
+
+.title {
+	color: var(--accent-color, #875b52);
+	font-family: 'Cormorant';
+	font-size: 2rem;
+	font-style: normal;
+	font-weight: 600;
+	line-height: 110%;
+	margin-bottom: 0.1rem;
+}
+
+.input__area {
+	width: 100%;
+	position: relative;
+	min-height: 4.25rem;
+}
+
+.input__area svg {
+	position: absolute;
+	right: 0;
+	top: 0.9rem;
+}
+
+.error__text {
+	color: var(--red-color, #b3261e);
+	font-family: 'Noto Sans';
+	font-size: 0.78rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 150%;
+	margin-top: 0.35rem;
+}
+
+.error__text p {
+	margin: 0;
+}

@@ -1,0 +1,49 @@
+version: '3.3'
+
+services:
+  backend:
+    restart: always
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    environment:
+      - RUN_MIGRATIONS=1
+    command: bash -c "python ./hotel/manage.py migrate && python ./hotel/manage.py runserver 0.0.0.0:8000"
+
+  frontend:
+    restart: always
+    build: ./front
+    depends_on:
+      - backend
+
+
+    ports:
+        - "3000:3000"
+
+
+  db:
+    restart: always
+    image: postgres:13.1-alpine
+    shm_size: '512mb'
+    command:
+        - "postgres"
+        - "-c"
+        - "shared_buffers=512MB"
+        - "-c"
+        - "max_connections=2000"
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+
+    depends_on:
+      - backend
+
+    ports:
+      - "5432:5432"
+    volumes:
+        - postgresdata:/var/lib/postgresql/data
+volumes:
+  postgresdata:
+

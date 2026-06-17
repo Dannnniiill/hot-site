@@ -1,0 +1,108 @@
+.input__date {
+	position: relative;
+	width: 15rem;
+	height: 3.125rem;
+	border-radius: 0.4375rem;
+	border: 1px solid var(--accent-color, #956446);
+	background: white;
+	box-shadow: -2px 4px 5px -4px rgba(109, 95, 85, 0.08);
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0.31rem 1.25rem;
+	box-sizing: border-box;
+}
+
+.form {
+	position: relative;
+	width: auto;
+}
+
+.input__text_side {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 0.2rem;
+	align-items: flex-start;
+	min-width: 0;
+}
+
+.input__title {
+	color: var(--pink-color, #d7bbbb);
+	text-align: left;
+	font-family: 'Noto Sans';
+	font-size: 0.75rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 100%;
+}
+
+.input__text {
+	color: var(--accent-color, #956446);
+	text-align: left;
+	font-family: 'Noto Sans';
+	font-size: 1rem;
+	font-style: normal;
+	font-weight: 400;
+	line-height: 100%;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.date__picker {
+	position: absolute;
+	top: -21rem;
+	left: -2.5rem;
+	z-index: 40;
+}
+
+@media (max-width: 1024px) {
+	.form {
+		width: 100%;
+	}
+
+	.input__date {
+		width: 100%;
+	}
+}
+
+@media (max-width: 700px) {
+	.date__picker {
+		position: absolute;
+		top: calc(100% + 0.5rem);
+		left: 0;
+		width: auto;
+		max-width: calc(100vw - 2rem);
+		transform-origin: top left;
+	}
+}
+
+@media (max-width: 460px) {
+	.form {
+		width: 100%;
+	}
+
+	.input__date {
+		width: 100%;
+	}
+
+	.date__picker {
+		top: calc(100% + 0.5rem);
+		left: 50%;
+		transform: translateX(-50%) scale(0.88);
+		max-width: none;
+	}
+
+	.input__text {
+		font-size: 0.9375rem;
+	}
+}
+
+@media (max-width: 380px) {
+	.date__picker {
+		transform: translateX(-50%) scale(0.8);
+	}
+}

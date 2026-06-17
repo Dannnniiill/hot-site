@@ -1,0 +1,33 @@
+.page__title {
+	color: var(--ui-accent, #875b52);
+	text-align: center;
+	/* H1 */
+	font-family: 'Cormorant';
+	font-size: 4.6875rem;
+	font-style: normal;
+	font-weight: 600;
+	line-height: normal;
+}
+
+.page__text {
+	color: var(--accent-color, #875b52);
+	text-align: center;
+
+	/* text large */
+	font-family: 'Noto Sans';
+	font-size: 1.375rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 160%; /* 2.2rem */
+	margin-bottom: 5rem;
+}
+
+.underline__text {
+	color: var(--accent-color, #875b52);
+	font-family: 'Noto Sans';
+	font-size: 1.375rem;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 160%;
+	text-decoration-line: underline;
+}

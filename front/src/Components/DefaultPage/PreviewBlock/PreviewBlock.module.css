@@ -1,0 +1,145 @@
+.preview__block {
+	background: url('./../../../Img/preview__bg.jpeg') no-repeat center center;
+	background-blend-mode: multiply;
+	width: 100vw;
+	min-height: 100vh;
+	background-size: cover;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-direction: column;
+	padding-top: 12rem;
+	padding-bottom: 5rem;
+	position: relative;
+	overflow: visible;
+	box-sizing: border-box;
+}
+
+.preview__text {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	position: relative;
+	z-index: 2;
+	width: 100%;
+}
+
+.preview__title {
+	color: var(--text-color, #fff);
+	font-family: 'Cormorant';
+	font-size: 7.0875rem;
+	font-style: normal;
+	font-weight: 600;
+	line-height: 0.95;
+	margin-bottom: 0.8rem;
+	text-align: center;
+}
+
+.preview__subtitle {
+	color: var(--font-color, #fff);
+	text-align: center;
+	font-family: 'Noto Sans';
+	font-size: 1.4rem;
+	font-style: normal;
+	font-weight: 600;
+	line-height: 160%;
+	width: 40%;
+}
+
+@media (min-height: 950px) {
+	.preview__block {
+		padding-top: 15rem;
+	}
+}
+
+@media (max-width: 1440px) {
+	.preview__subtitle {
+		width: 55%;
+	}
+}
+
+@media (max-width: 1280px) {
+	.preview__title {
+		font-size: 6rem;
+	}
+
+	.preview__subtitle {
+		font-size: 1.2rem;
+		width: 55%;
+	}
+}
+
+@media (max-width: 900px) {
+	.preview__block {
+		padding-top: 9rem;
+		padding-bottom: 2rem;
+		justify-content: flex-start;
+		gap: 2rem;
+		min-height: auto;
+	}
+
+	.preview__title {
+		font-size: 4.4rem;
+		line-height: 0.95;
+	}
+
+	.preview__subtitle {
+		font-size: 1rem;
+		width: min(90%, 38rem);
+	}
+}
+
+@media (max-width: 640px) {
+	.preview__block {
+		background-image: url('./../../../Img/preview__mobile.png');
+		background-position: center top;
+		padding: 7rem 0.5rem 1rem;
+		gap: 1.4rem;
+		min-height: auto;
+	}
+
+	.preview__title {
+		font-size: 3.4rem;
+		font-weight: 600;
+		line-height: 0.95;
+		margin-bottom: 0.7rem;
+		width: 100%;
+		padding: 0 0.6rem;
+		box-sizing: border-box;
+	}
+
+	.preview__subtitle {
+		font-size: 0.98rem;
+		line-height: 155%;
+		padding: 0 1rem;
+		width: 100%;
+		box-sizing: border-box;
+	}
+}
+
+@media (max-width: 460px) {
+	.preview__block {
+		padding: 6.5rem 0.5rem 1rem;
+	}
+
+	.preview__title {
+		font-size: 3rem;
+	}
+
+	.preview__subtitle {
+		font-size: 0.94rem;
+		padding: 0 0.85rem;
+	}
+}
+
+@media (max-width: 460px) and (max-height: 750px) {
+	.preview__block {
+		padding-top: 6rem;
+	}
+}
+
+@media (max-width: 460px) and (max-height: 690px) {
+	.preview__block {
+		padding-top: 5.5rem;
+	}
+}
