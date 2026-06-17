@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 import { BASE_URL } from '../constats';
 
@@ -165,20 +165,17 @@ export function AuthProvider({ children }) {
 		setUser(null);
 	};
 
-	const value = useMemo(
-		() => ({
-			user,
-			authReady,
-			isAuthenticated: !!user,
-			isAdmin: user?.role === 'admin',
-			register,
-			verifyRegisterCode,
-			login,
-			updateProfile,
-			logout,
-		}),
-		[user, authReady],
-	);
+	const value = {
+		user,
+		authReady,
+		isAuthenticated: !!user,
+		isAdmin: user?.role === 'admin',
+		register,
+		verifyRegisterCode,
+		login,
+		updateProfile,
+		logout,
+	};
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import styles from './Feedback.module.css';
 import { cyrillicPattern, setClassNameByValid, telPattern } from '../../../constats';
 import { Input } from './../../UI/Input/Input';
@@ -53,6 +53,7 @@ function Feedback() {
 	function changeCheckbox() {
 		setFormState({ ...formState, checked: !checked });
 	}
+
 	const handleChange = (name, value) => {
 		setFormState({ ...formState, [name]: value });
 	};
@@ -68,14 +69,16 @@ function Feedback() {
 		<section className={styles.feedback}>
 			<div className={styles.left__side}>
 				<div className="block__title">
-					<div className="title__line"></div>Остались вопросы?
+					<div className="title__line"></div>
+					Остались вопросы?
 					<div className="title__line"></div>
 				</div>
 
 				<div className={styles.form}>
 					<div className={styles.block__title}>
-						Оставьте заяку и мы свяжемся с вами и ответим на любые вопросы
+						Оставьте заяку и мы свяжемся с вами и ответим на любые вопросы
 					</div>
+
 					<Input
 						title="Имя*"
 						value={nameValue}
@@ -88,6 +91,7 @@ function Feedback() {
 						error={validName}
 						errorText="Введите имя на кириллице"
 					/>
+
 					<Input
 						title="Фамилия*"
 						value={lastNameValue}
@@ -100,6 +104,7 @@ function Feedback() {
 						error={validLastName}
 						errorText="Введите фамилию на кириллице"
 					/>
+
 					<Input
 						title="Телефон*"
 						value={telValue}
@@ -112,32 +117,30 @@ function Feedback() {
 						error={validTel}
 						errorText="Неверный формат номера"
 					/>
+
 					<CheckBoxArea
 						className={styles.checkbox}
 						checked={checked}
 						onChange={changeCheckbox}
 						error={validChecked}
-						errorText="Пожалуйста, подтвердите Ваше согласие">
+						errorText="Пожалуйста, подтвердите Ваше согласие"
+					>
 						<span>
 							Я согласен с{' '}
-							<NavLink
-								to="/privacy"
-								className={styles.underline__text}>
+							<NavLink to="/privacy" className={styles.underline__text}>
 								политикой конфидециальности
 							</NavLink>
 						</span>
 					</CheckBoxArea>
-					<button
-						className={styles.primary__btn}
-						onClick={handleSubmit}>
+
+					<button className={styles.primary__btn} onClick={handleSubmit}>
 						Оставить заявку
 					</button>
 				</div>
 			</div>
-			<img
-				src={require('./../../../Img/questions.png')}
-				alt=""
-			/>
+
+			<img src={require('./../../../Img/questions.png')} alt="" />
+
 			<ModalStatus
 				isOpen={isOpen}
 				onClose={onClose}

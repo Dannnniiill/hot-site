@@ -130,7 +130,7 @@ function ReservationPage() {
 		state?.fromDate ? new Date(state.fromDate) : defaultEndDate,
 	);
 	const [persons, setPersons] = React.useState(state?.persons ? state.persons : { count: 1 });
-	const [filters, setFilters] = React.useState(
+	const [filters] = React.useState(
 		state?.filters
 			? state.filters
 			: {

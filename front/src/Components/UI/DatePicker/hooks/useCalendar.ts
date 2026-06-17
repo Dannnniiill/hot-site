@@ -30,10 +30,13 @@ export const useCalendar = ({ locale = 'default', selectedDate: date, firstWeekD
 	const [selectedYear, setSelectedYear] = React.useState(selectedDay.year);
 	const [selectedYearsInterval, setSelectedYearsInterval] = React.useState(getYearsInterval(selectedDay.year));
 
-	const monthesNames = React.useMemo(() => getMonthesNames(locale), []);
-	const weekDaysNames = React.useMemo(() => getWeekDaysNames(firstWeekDayNumber, locale), []);
+	const monthesNames = React.useMemo(() => getMonthesNames(locale), [locale]);
+	const weekDaysNames = React.useMemo(
+		() => getWeekDaysNames(firstWeekDayNumber, locale),
+		[firstWeekDayNumber, locale],
+	);
 
-	const days = React.useMemo(() => selectedMonth.createMonthDays(), [selectedMonth, selectedYear]);
+	const days = React.useMemo(() => selectedMonth.createMonthDays(), [selectedMonth]);
 
 	const calendarDays = React.useMemo(() => {
 		const monthNumberOfDays = getMonthNumberOfDays(selectedMonth.monthIndex, selectedYear);
@@ -80,7 +83,7 @@ export const useCalendar = ({ locale = 'default', selectedDate: date, firstWeekD
 		}
 
 		return result;
-	}, [selectedMonth.year, selectedMonth.monthIndex, selectedYear]);
+	}, [days, firstWeekDayNumber, locale, selectedMonth.monthIndex, selectedYear]);
 
 	const onClickArrow = (direction: 'right' | 'left') => {
 		if (mode === 'years' && direction === 'left') {
@@ -105,6 +108,7 @@ export const useCalendar = ({ locale = 'default', selectedDate: date, firstWeekD
 
 		if (mode === 'days') {
 			const monthIndex = direction === 'left' ? selectedMonth.monthIndex - 1 : selectedMonth.monthIndex + 1;
+
 			if (monthIndex === -1) {
 				const year = selectedYear - 1;
 				setSelectedYear(year);
