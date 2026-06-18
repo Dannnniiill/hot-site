@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { BASE_URL } from '../constats';
+import { BASE_URL, REQUEST_TIMEOUT_MS } from '../constats';
 
 const AuthContext = createContext(null);
 const CURRENT_USER_KEY = 'hotel_current_user';
@@ -10,6 +10,16 @@ const API_BASE =
 	window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 		? 'http://127.0.0.1:8000'
 		: BASE_URL;
+
+const requestConfig = {
+	headers: { 'Content-Type': 'application/json' },
+	timeout: REQUEST_TIMEOUT_MS,
+};
+
+function normalizeText(value) {
+	if (value === undefined || value === null) return '';
+	return String(value).trim();
+}
 
 export function AuthProvider({ children }) {
 	const [user, setUser] = useState(null);
@@ -31,20 +41,17 @@ export function AuthProvider({ children }) {
 		}
 	}, []);
 
-	const register = async ({ name, email, password }) => {
+	const register = async ({ name, email, password, phone = '' }) => {
 		try {
 			const response = await axios.post(
 				`${API_BASE}/auth/register/`,
 				{
-					name,
-					email,
+					name: normalizeText(name),
+					email: normalizeText(email).toLowerCase(),
 					password,
-					phone: '',
+					phone: normalizeText(phone),
 				},
-				{
-					headers: { 'Content-Type': 'application/json' },
-					timeout: 10000,
-				},
+				requestConfig,
 			);
 
 			return {
@@ -64,13 +71,10 @@ export function AuthProvider({ children }) {
 			const response = await axios.post(
 				`${API_BASE}/auth/register/verify/`,
 				{
-					email,
-					code,
+					email: normalizeText(email).toLowerCase(),
+					code: normalizeText(code),
 				},
-				{
-					headers: { 'Content-Type': 'application/json' },
-					timeout: 10000,
-				},
+				requestConfig,
 			);
 
 			const normalizedUser = normalizeUserRole(response.data.user);
@@ -95,13 +99,10 @@ export function AuthProvider({ children }) {
 			const response = await axios.post(
 				`${API_BASE}/auth/login/`,
 				{
-					email,
+					email: normalizeText(email).toLowerCase(),
 					password,
 				},
-				{
-					headers: { 'Content-Type': 'application/json' },
-					timeout: 10000,
-				},
+				requestConfig,
 			);
 
 			const normalizedUser = normalizeUserRole(response.data.user);
@@ -121,27 +122,22 @@ export function AuthProvider({ children }) {
 		}
 	};
 
-	const updateProfile = async ({ name, email, phone, password }) => {
+	const updateProfile = async ({ name, email, phone }) => {
 		if (!user) {
 			return { success: false, message: 'Пользователь не найден' };
 		}
 
 		try {
-			const payload = {
-				user_id: user.id,
-				name,
-				email,
-				phone,
-			};
-
-			if (password) {
-				payload.password = password;
-			}
-
-			const response = await axios.post(`${API_BASE}/auth/profile/update/`, payload, {
-				headers: { 'Content-Type': 'application/json' },
-				timeout: 10000,
-			});
+			const response = await axios.post(
+				`${API_BASE}/auth/profile/update/`,
+				{
+					user_id: user.id,
+					name: normalizeText(name),
+					email: normalizeText(email).toLowerCase(),
+					phone: normalizeText(phone),
+				},
+				requestConfig,
+			);
 
 			const normalizedUser = normalizeUserRole(response.data.user);
 			localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
@@ -165,17 +161,20 @@ export function AuthProvider({ children }) {
 		setUser(null);
 	};
 
-	const value = {
-		user,
-		authReady,
-		isAuthenticated: !!user,
-		isAdmin: user?.role === 'admin',
-		register,
-		verifyRegisterCode,
-		login,
-		updateProfile,
-		logout,
-	};
+	const value = useMemo(
+		() => ({
+			user,
+			authReady,
+			isAuthenticated: !!user,
+			isAdmin: user?.role === 'admin',
+			register,
+			verifyRegisterCode,
+			login,
+			updateProfile,
+			logout,
+		}),
+		[user, authReady],
+	);
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

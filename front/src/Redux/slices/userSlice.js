@@ -1,6 +1,6 @@
 import { createAction, createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import axios from 'axios';
-import { BASE_URL } from '../../constats';
+import { BASE_URL, REQUEST_TIMEOUT_MS } from '../../constats';
 
 const API_BASE =
 	window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -14,6 +14,11 @@ const getErrorMessage = (err, fallbackText) => {
 	return fallbackText;
 };
 
+const jsonConfig = {
+	headers: { 'Content-Type': 'application/json' },
+	timeout: REQUEST_TIMEOUT_MS,
+};
+
 export const sendFeedback = createAsyncThunk('user/sendFeedback', async (data, thunkAPI) => {
 	try {
 		const res = await axios.post(
@@ -23,10 +28,7 @@ export const sendFeedback = createAsyncThunk('user/sendFeedback', async (data, t
 				last_name: data.last_name,
 				phone_number: data.phone_number,
 			},
-			{
-				headers: { 'Content-Type': 'application/json' },
-				timeout: 10000,
-			},
+			jsonConfig,
 		);
 		return res.data;
 	} catch (err) {
@@ -48,12 +50,7 @@ export const getRooms = createAsyncThunk('user/getRooms', async (data, thunkAPI)
 				persons: data.persons,
 				type: data.type,
 			},
-			{
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				timeout: 10000,
-			},
+			jsonConfig,
 		);
 		return res.data;
 	} catch (err) {
@@ -84,12 +81,7 @@ export const sendBook = createAsyncThunk('user/sendBook', async (data, thunkAPI)
 				promo_discount: data.promo_discount || 0,
 				total_price: data.total_price || 0,
 			},
-			{
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				timeout: 10000,
-			},
+			jsonConfig,
 		);
 		return res.data;
 	} catch (err) {

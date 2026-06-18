@@ -103,10 +103,9 @@ function getRoomTypeFromPath(pathname) {
 }
 
 function formatInputDate(date) {
-	const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
-	const year = safeDate.getFullYear();
-	const month = String(safeDate.getMonth() + 1).padStart(2, '0');
-	const day = String(safeDate.getDate()).padStart(2, '0');
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
 	return `${year}-${month}-${day}`;
 }
 
@@ -132,7 +131,7 @@ function ReservationPage() {
 		state?.fromDate ? new Date(state.fromDate) : defaultEndDate,
 	);
 	const [persons, setPersons] = React.useState(state?.persons ? state.persons : { count: 1 });
-	const [filters] = React.useState(
+	const [filters, setFilters] = React.useState(
 		state?.filters
 			? state.filters
 			: {
@@ -183,11 +182,10 @@ function ReservationPage() {
 	const isMainSearchRoom = searchMode === 'main-search-room';
 	const isDirectRoomState = searchMode === 'direct-room';
 
-	const isDirectRoomBooking = isDirectRoomState;
-	const shouldShowTopBookingBar = isDirectRoomState;
-
 	const hasStateData = Boolean(state);
 	const hasDirectRoomRoute = Boolean(routeRoom);
+	const isDirectRoomBooking = isDirectRoomState || hasDirectRoomRoute;
+	const shouldShowTopBookingBar = isDirectRoomBooking;
 
 	React.useEffect(() => {
 		if (!hasStateData && !hasDirectRoomRoute) {
@@ -273,17 +271,14 @@ function ReservationPage() {
 				start_date: getDateToString(toDate),
 				end_date: getDateToString(fromDate),
 				persons: getPersonsCount(),
-				type: '',
+				type: isDirectRoomBooking ? effectiveSelectedRoom?.type || directRoomType || '' : '',
 			}),
 		);
-	}, [dispatch, toDate, fromDate, getPersonsCount]);
+	}, [dispatch, toDate, fromDate, getPersonsCount, isDirectRoomBooking, effectiveSelectedRoom, directRoomType]);
 
 	React.useEffect(() => {
-		if (isDirectRoomBooking) return;
-		if (!state) return;
-
 		handleSubmit();
-	}, [isDirectRoomBooking, state, handleSubmit]);
+	}, [handleSubmit]);
 
 	const applyPromo = async () => {
 		const code = normalizeText(promoCode).toUpperCase();
@@ -453,6 +448,93 @@ function ReservationPage() {
 		}
 	}, [state]);
 
+	const directPanelStyles = {
+		wrap: {
+			width: '100%',
+			maxWidth: '1120px',
+			margin: '110px auto 32px',
+			padding: '18px',
+			borderRadius: '24px',
+			background: 'rgba(242, 233, 225, 0.95)',
+			backdropFilter: 'blur(8px)',
+			boxShadow: '0 14px 32px rgba(86, 58, 46, 0.08)',
+			border: '1px solid rgba(135, 91, 82, 0.12)',
+			boxSizing: 'border-box',
+			position: 'relative',
+			zIndex: 2,
+		},
+		grid: {
+			display: 'grid',
+			gridTemplateColumns: '1fr 1fr 1fr 240px',
+			gap: '16px',
+			alignItems: 'end',
+		},
+		field: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: '8px',
+		},
+		label: {
+			fontSize: '13px',
+			fontWeight: 700,
+			color: '#9b7a69',
+			textTransform: 'uppercase',
+			letterSpacing: '0.03em',
+		},
+		input: {
+			width: '100%',
+			height: '62px',
+			borderRadius: '16px',
+			border: '1px solid rgba(135, 91, 82, 0.18)',
+			background: '#fff',
+			padding: '0 16px',
+			fontSize: '22px',
+			color: '#6e493a',
+			boxSizing: 'border-box',
+		},
+		guestBox: {
+			height: '62px',
+			borderRadius: '16px',
+			border: '1px solid rgba(135, 91, 82, 0.18)',
+			background: '#fff',
+			padding: '0 16px',
+			display: 'flex',
+			alignItems: 'center',
+			justifyContent: 'space-between',
+			boxSizing: 'border-box',
+		},
+		guestCount: {
+			fontSize: '24px',
+			fontWeight: 700,
+			color: '#6e493a',
+			minWidth: '36px',
+			textAlign: 'center',
+		},
+		guestBtn: {
+			width: '36px',
+			height: '36px',
+			borderRadius: '50%',
+			border: '1px solid rgba(135, 91, 82, 0.18)',
+			background: '#fff8f4',
+			color: '#6e493a',
+			fontSize: '24px',
+			cursor: 'pointer',
+			lineHeight: 1,
+		},
+		submit: {
+			width: '100%',
+			height: '62px',
+			border: 'none',
+			borderRadius: '16px',
+			background: 'linear-gradient(135deg, #8a5d48 0%, #6e493a 100%)',
+			color: '#fff',
+			fontSize: '20px',
+			fontWeight: 700,
+			cursor: 'pointer',
+			boxShadow: '0 12px 24px rgba(111, 73, 57, 0.18)',
+		},
+	};
+
 	if (!hasStateData && !hasDirectRoomRoute) {
 		return null;
 	}
@@ -470,10 +552,10 @@ function ReservationPage() {
 			<div className={styles.container}>
 				<div className={styles.content} style={contentSpacingStyle}>
 					{shouldShowTopBookingBar ? (
-						<div className={styles.topBookingBar}>
-							<div className={styles.topBookingGrid}>
-								<div className={styles.topBookingField}>
-									<span className={styles.topBookingLabel}>Заезд</span>
+						<div style={directPanelStyles.wrap}>
+							<div style={directPanelStyles.grid}>
+								<div style={directPanelStyles.field}>
+									<span style={directPanelStyles.label}>Заезд</span>
 									<input
 										type="date"
 										value={formatInputDate(toDate)}
@@ -489,12 +571,12 @@ function ReservationPage() {
 												setFromDate(nextFrom);
 											}
 										}}
-										className={styles.topBookingInput}
+										style={directPanelStyles.input}
 									/>
 								</div>
 
-								<div className={styles.topBookingField}>
-									<span className={styles.topBookingLabel}>Выезд</span>
+								<div style={directPanelStyles.field}>
+									<span style={directPanelStyles.label}>Выезд</span>
 									<input
 										type="date"
 										value={formatInputDate(fromDate)}
@@ -504,16 +586,16 @@ function ReservationPage() {
 											nextDate.setHours(0, 0, 0, 0);
 											setFromDate(nextDate);
 										}}
-										className={styles.topBookingInput}
+										style={directPanelStyles.input}
 									/>
 								</div>
 
-								<div className={styles.topBookingField}>
-									<span className={styles.topBookingLabel}>Количество гостей</span>
-									<div className={styles.topBookingGuestBox}>
+								<div style={directPanelStyles.field}>
+									<span style={directPanelStyles.label}>Количество гостей</span>
+									<div style={directPanelStyles.guestBox}>
 										<button
 											type="button"
-											className={styles.topBookingGuestBtn}
+											style={directPanelStyles.guestBtn}
 											onClick={() => {
 												const current = getPersonsCount();
 												if (current > 1) {
@@ -524,11 +606,11 @@ function ReservationPage() {
 											−
 										</button>
 
-										<div className={styles.topBookingGuestCount}>{getPersonsCount()}</div>
+										<div style={directPanelStyles.guestCount}>{getPersonsCount()}</div>
 
 										<button
 											type="button"
-											className={styles.topBookingGuestBtn}
+											style={directPanelStyles.guestBtn}
 											onClick={() => {
 												const current = getPersonsCount();
 												const maxGuests = Number(effectiveSelectedRoom?.maxPerson || 10);
@@ -543,7 +625,7 @@ function ReservationPage() {
 									</div>
 								</div>
 
-								<button type="button" className={styles.topBookingSubmit} onClick={handleSubmit}>
+								<button type="button" style={directPanelStyles.submit} onClick={handleSubmit}>
 									Проверить доступность
 								</button>
 							</div>

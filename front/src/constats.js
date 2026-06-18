@@ -7,7 +7,14 @@ export const ABOUT = 'about';
 export const SERVICES = 'services';
 export const CONTACTS = 'contacts';
 export const PROMOTIONS = 'promotions';
-export const BASE_URL = 'https://hotel-backend-6tq0.onrender.com';
+
+const ENV_API_BASE =
+	typeof process !== 'undefined' && process.env?.REACT_APP_API_BASE_URL
+		? process.env.REACT_APP_API_BASE_URL
+		: '';
+
+export const BASE_URL = ENV_API_BASE || 'https://hotel-backend-6tq0.onrender.com';
+export const REQUEST_TIMEOUT_MS = 70000;
 
 export const cyrillicPattern = /^[\u0400-\u04FF]+$/;
 export const telPattern = /^(\s*)?(\+)?([- _():=+]?\d[- _():=+]?){10,14}(\s*)?$/;
@@ -18,6 +25,8 @@ export const setClassNameByValid = (valid) => {
 
 export const scrollById = (id) => {
 	const element = document.getElementById(`${id}`);
+	if (!element) return;
+
 	const y = element.offsetTop;
 	window.scrollTo({
 		top: y,
@@ -27,19 +36,23 @@ export const scrollById = (id) => {
 };
 
 export const useComponentDidMount = () => {
-	const ref = useRef();
+	const ref = useRef(false);
+
 	useEffect(() => {
 		ref.current = true;
 	}, []);
+
 	return ref.current;
 };
 
 export const normalize_count_form = (number, words_arr) => {
 	number = Math.abs(number);
+
 	if (Number.isInteger(number)) {
 		let options = [2, 0, 1, 1, 1, 2];
 		return words_arr[number % 100 > 4 && number % 100 < 20 ? 2 : options[number % 10 < 5 ? number % 10 : 5]];
 	}
+
 	return words_arr[1];
 };
 
