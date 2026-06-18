@@ -6,7 +6,7 @@ import Footer from '../Footer/Footer';
 import { useDisclosure, useToast } from '@chakra-ui/react';
 import { getRooms, sendBook, selectRoom } from '../../Redux/slices/userSlice';
 import { useDispatch, useSelector } from 'react-redux';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BASE_URL, cyrillicPattern, getDateToString, telPattern, getNightsCount } from '../../constats';
 import LoaderData from './LoaderData/LoaderData';
 import ModalStatus from '../UI/ModalStatus/ModalStatus';
@@ -103,14 +103,16 @@ function getRoomTypeFromPath(pathname) {
 }
 
 function formatInputDate(date) {
-	const year = date.getFullYear();
-	const month = String(date.getMonth() + 1).padStart(2, '0');
-	const day = String(date.getDate()).padStart(2, '0');
+	const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+	const year = safeDate.getFullYear();
+	const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+	const day = String(safeDate.getDate()).padStart(2, '0');
 	return `${year}-${month}-${day}`;
 }
 
 function ReservationPage() {
 	const dispatch = useDispatch();
+	const navigate = useNavigate();
 	const toast = useToast();
 	const { isOpen, onOpen, onClose } = useDisclosure();
 
@@ -183,6 +185,15 @@ function ReservationPage() {
 
 	const isDirectRoomBooking = isDirectRoomState;
 	const shouldShowTopBookingBar = isDirectRoomState;
+
+	const hasStateData = Boolean(state);
+	const hasDirectRoomRoute = Boolean(routeRoom);
+
+	React.useEffect(() => {
+		if (!hasStateData && !hasDirectRoomRoute) {
+			navigate('/', { replace: true });
+		}
+	}, [hasStateData, hasDirectRoomRoute, navigate]);
 
 	const effectiveSelectedRoom = React.useMemo(() => {
 		if (isMainSearchRoom || isDirectRoomBooking) {
@@ -441,6 +452,10 @@ function ReservationPage() {
 			setPromoCode(state.promoCode);
 		}
 	}, [state]);
+
+	if (!hasStateData && !hasDirectRoomRoute) {
+		return null;
+	}
 
 	const contentSpacingStyle = shouldShowTopBookingBar
 		? {}
