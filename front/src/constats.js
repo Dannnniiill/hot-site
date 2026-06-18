@@ -13,7 +13,7 @@ const ENV_API_BASE =
 		? process.env.REACT_APP_API_BASE_URL
 		: '';
 
-export const BASE_URL = ENV_API_BASE || 'https://hotel-backend-6tq0.onrender.com';
+export const BASE_URL = ENV_API_BASE || 'https://hot-site-production.up.railway.app';
 export const REQUEST_TIMEOUT_MS = 70000;
 
 export const cyrillicPattern = /^[\u0400-\u04FF]+$/;
