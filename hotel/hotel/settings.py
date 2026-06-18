@@ -1,18 +1,28 @@
 import os
 from pathlib import Path
 
-from corsheaders.defaults import default_headers
 import dj_database_url
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-coq_&xptvj1po7u28c#z1!bm4+%owx(4+o%pg0vw$@_v)b%ngl')
-DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
+SECRET_KEY = os.getenv(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-coq_&xptvj1po7u28c#z1!bm4+%owx(4+o%pg0vw$@_v)b%ngl',
+)
 
-ALLOWED_HOSTS = [host.strip() for host in os.getenv(
-    'DJANGO_ALLOWED_HOSTS',
-    '127.0.0.1,localhost,.onrender.com,апи.отель-Комфорт.рф,xn--80aqu.xn----8sbnc1aqybdg6c1cg.xn--p1ai'
-).split(',') if host.strip()]
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
+
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    '.onrender.com',
+    '.vercel.app',
+    'отель-комфорт.рф',
+    'апи.отель-комфорт.рф',
+    'xn----8sbnc1aqybdg6c1cg.xn--p1ai',
+    'xn--80aqu.xn----8sbnc1aqybdg6c1cg.xn--p1ai',
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -60,23 +70,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'hotel.wsgi.application'
 
-default_db_url = os.getenv('DATABASE_URL', '')
-if default_db_url:
+DATABASE_URL = os.getenv('DATABASE_URL', '').strip()
+
+if DATABASE_URL:
     DATABASES = {
-        'default': dj_database_url.parse(default_db_url, conn_max_age=600, ssl_require=True),
+        'default': dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True,
+        )
     }
 else:
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.getenv('MYSQL_DATABASE', 'hotel_db'),
-            'USER': os.getenv('MYSQL_USER', 'hotel_user'),
-            'PASSWORD': os.getenv('MYSQL_PASSWORD', '12345678'),
-            'HOST': os.getenv('MYSQL_HOST', '127.0.0.1'),
-            'PORT': os.getenv('MYSQL_PORT', '3306'),
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-            },
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
 
@@ -99,6 +107,8 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 APPEND_SLASH = False
 
+EMAIL_VERIFICATION_ENABLED = os.getenv('EMAIL_VERIFICATION_ENABLED', 'False').lower() == 'true'
+
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.yandex.com')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
@@ -106,12 +116,9 @@ EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'hotel.main@yandex.com')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'khyeivhfpcvumpfk')
-EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '20'))
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
-SERVER_EMAIL = DEFAULT_FROM_EMAIL
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'content-disposition',
@@ -120,12 +127,19 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://отель-Комфорт.рф',
-    'https://апи.отель-Комфорт.рф',
+    'https://отель-комфорт.рф',
+    'https://апи.отель-комфорт.рф',
     'https://xn----8sbnc1aqybdg6c1cg.xn--p1ai',
     'https://xn--80aqu.xn----8sbnc1aqybdg6c1cg.xn--p1ai',
-    'https://*.vercel.app',
     'https://*.onrender.com',
+    'https://*.vercel.app',
 ]
 
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+    ],
+}
