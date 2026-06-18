@@ -88,6 +88,7 @@ def send_code_email(email, code):
 
 
 def send_booking_email(email, booking, action='created'):
+    return True
     if action == 'created':
         subject = f'Бронирование {booking.booking_number} создано'
         message = (
