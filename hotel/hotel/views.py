@@ -1,10 +1,7 @@
-import random
-
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import transaction
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -34,6 +31,8 @@ from .serializers import (
     RequestSerializer,
     VerifyRegisterSerializer,
 )
+
+DEMO_REGISTER_CODE = '123456'
 
 
 def clean_text(value):
@@ -81,20 +80,11 @@ ROOM_TYPE_MAP = {
 
 
 def generate_code():
-    return f"{random.randint(100000, 999999)}"
+    return DEMO_REGISTER_CODE
 
 
 def send_code_email(email, code):
-    send_mail(
-        subject='Код подтверждения регистрации',
-        message=(
-            f'Ваш код подтверждения: {code}\n\n'
-            f'Код действует 10 минут.'
-        ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-    )
+    return True
 
 
 def send_booking_email(email, booking, action='created'):
@@ -252,16 +242,11 @@ class RegisterRequestView(APIView):
             payload_password=data['password'],
         )
 
-        try:
-            send_code_email(email, code)
-        except Exception as exc:
-            return Response(
-                {'message': f'Не удалось отправить письмо: {str(exc)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
         return Response(
-            {'message': 'Код подтверждения отправлен на email'},
+            {
+                'message': f'Код подтверждения для демо: {code}',
+                'demo_code': code,
+            },
             status=status.HTTP_200_OK,
         )
 
