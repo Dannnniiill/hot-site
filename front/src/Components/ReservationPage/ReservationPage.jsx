@@ -1,51 +1,46 @@
 import React from 'react';
 import axios from 'axios';
-import styles from './ReservationPage.module.css';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Header from '../Header/Header';
 import Footer from '../Footer/Footer';
-import { useDisclosure, useToast } from '@chakra-ui/react';
-import { getRooms, sendBook, selectRoom } from '../../Redux/slices/userSlice';
-import { useDispatch, useSelector } from 'react-redux';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { BASE_URL, cyrillicPattern, getDateToString, telPattern, getNightsCount } from '../../constats';
-import LoaderData from './LoaderData/LoaderData';
-import ModalStatus from '../UI/ModalStatus/ModalStatus';
 import { useAuth } from '../../auth/AuthProvider';
-import { promotionsData } from '../../data/promotionsData';
-
-const ACTIVE_PROMO_KEY = 'hotel_active_promo';
+import { BASE_URL } from '../../constats';
 
 const API_BASE =
 	window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 		? 'http://127.0.0.1:8000'
 		: BASE_URL;
 
+const BOOKING_TIMEOUT_MS = 65000;
+const BOOKING_POLL_TIMEOUT_MS = 20000;
+const BOOKING_POLL_STEP_MS = 2000;
+
 const ROOM_CATALOG = {
 	standard: {
 		id: 1,
 		type: 'standard',
-		name: 'Номер Стандарт',
+		name: 'Номер Standard',
 		price: 2200,
 		maxPerson: 2,
 	},
 	luxe: {
 		id: 2,
 		type: 'luxe',
-		name: 'Номер Люкс',
+		name: 'Номер Luxe',
 		price: 3400,
 		maxPerson: 3,
 	},
 	'luxe plus': {
 		id: 3,
 		type: 'luxe plus',
-		name: 'Номер Люкс +',
+		name: 'Номер Luxe Plus',
 		price: 3700,
 		maxPerson: 3,
 	},
 	'luxe premium': {
 		id: 4,
 		type: 'luxe premium',
-		name: 'Номер Люкс Премиум',
+		name: 'Номер Luxe Premium',
 		price: 4200,
 		maxPerson: 4,
 	},
@@ -58,12 +53,28 @@ function normalizeText(value) {
 	return normalized;
 }
 
+function normalizeRoomType(roomType) {
+	const value = normalizeText(roomType).toLowerCase();
+
+	const mapping = {
+		standard: 'standard',
+		luxe: 'luxe',
+		luxeplus: 'luxe plus',
+		'luxe plus': 'luxe plus',
+		'luxe-plus': 'luxe plus',
+		luxe_plus: 'luxe plus',
+		luxepremium: 'luxe premium',
+		'luxe premium': 'luxe premium',
+		'luxe-premium': 'luxe premium',
+		luxe_premium: 'luxe premium',
+	};
+
+	return mapping[value] || value;
+}
+
 function splitUserName(fullName) {
 	const safeName = normalizeText(fullName);
-
-	if (!safeName) {
-		return { firstName: '', lastName: '' };
-	}
+	if (!safeName) return { firstName: '', lastName: '' };
 
 	const parts = safeName.split(/\s+/).filter(Boolean);
 
@@ -86,6 +97,26 @@ function createDefaultEndDate(startDate) {
 	return end;
 }
 
+function getDateToString(date) {
+	const safeDate = new Date(date);
+	const year = safeDate.getFullYear();
+	const month = String(safeDate.getMonth() + 1).padStart(2, '0');
+	const day = String(safeDate.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
+
+function getNightsCount(toDate, fromDate) {
+	const start = new Date(toDate);
+	const end = new Date(fromDate);
+	start.setHours(0, 0, 0, 0);
+	end.setHours(0, 0, 0, 0);
+
+	const msDay = 1000 * 60 * 60 * 24;
+	const diff = Math.floor((end.getTime() - start.getTime()) / msDay);
+
+	return diff > 0 ? diff : 1;
+}
+
 function getRoomTypeFromPath(pathname) {
 	const cleanPath = String(pathname || '').split('?')[0].replace(/\/+$/, '');
 	const segments = cleanPath.split('/').filter(Boolean);
@@ -93,582 +124,597 @@ function getRoomTypeFromPath(pathname) {
 	if (segments.length < 2) return '';
 	if (segments[0] !== 'reservation') return '';
 
-	const encodedType = segments.slice(1).join('/');
-
 	try {
-		return decodeURIComponent(encodedType).toLowerCase();
-	} catch {
-		return encodedType.toLowerCase();
+		return decodeURIComponent(segments.slice(1).join('/')).toLowerCase();
+	} catch (error) {
+		console.error('Ошибка декодирования типа номера:', error);
+		return '';
 	}
 }
 
-function formatInputDate(date) {
-	const year = date.getFullYear();
-	const month = String(date.getMonth() + 1).padStart(2, '0');
-	const day = String(date.getDate()).padStart(2, '0');
-	return `${year}-${month}-${day}`;
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAxiosTimeout(error) {
+	return (
+		error?.code === 'ECONNABORTED' ||
+		String(error?.message || '').toLowerCase().includes('timeout')
+	);
+}
+
+async function findCreatedBooking({ email, roomType, startDate, endDate }) {
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < BOOKING_POLL_TIMEOUT_MS) {
+		try {
+			const response = await axios.get(`${API_BASE}/bookings/my/`, {
+				params: {
+					email: normalizeText(email).toLowerCase(),
+				},
+				timeout: 15000,
+			});
+
+			const raw = Array.isArray(response.data)
+				? response.data
+				: Array.isArray(response.data?.results)
+				? response.data.results
+				: Array.isArray(response.data?.data)
+				? response.data.data
+				: [];
+
+			const found = raw.find((item) => {
+				const bookingType = normalizeRoomType(item?.type);
+				const bookingStart = normalizeText(item?.start_date || item?.startDate);
+				const bookingEnd = normalizeText(item?.end_date || item?.endDate);
+
+				return (
+					bookingType === normalizeRoomType(roomType) &&
+					bookingStart === startDate &&
+					bookingEnd === endDate
+				);
+			});
+
+			if (found) return found;
+		} catch (error) {
+			console.error('Ошибка проверки созданной брони после timeout:', error);
+		}
+
+		await sleep(BOOKING_POLL_STEP_MS);
+	}
+
+	return null;
 }
 
 function ReservationPage() {
-	const dispatch = useDispatch();
 	const navigate = useNavigate();
-	const toast = useToast();
-	const { isOpen, onOpen, onClose } = useDisclosure();
-
-	const { isError, isSuccess, selectedRoomData, errorMessage } = useSelector((state) => state.userSlice);
-	const params = useParams();
 	const location = useLocation();
-	const { state, pathname } = location;
+	const params = useParams();
 	const { user } = useAuth();
 
-	const initialUserName = splitUserName(user?.name);
+	const state = location.state || {};
+	const pathname = location.pathname;
+
+	const routeTypeFromParams = normalizeRoomType(params?.type);
+	const routeTypeFromPath = normalizeRoomType(getRoomTypeFromPath(pathname));
+	const selectedType = routeTypeFromParams || routeTypeFromPath || normalizeRoomType(state?.roomType);
+
+	const room = ROOM_CATALOG[selectedType] || null;
 
 	const defaultStartDate = React.useMemo(() => createDefaultStartDate(), []);
 	const defaultEndDate = React.useMemo(() => createDefaultEndDate(defaultStartDate), [defaultStartDate]);
 
-	const [toDate, setToDate] = React.useState(state?.toDate ? new Date(state.toDate) : defaultStartDate);
-	const [fromDate, setFromDate] = React.useState(
+	const parsedUserName = React.useMemo(() => splitUserName(user?.name), [user]);
+
+	const [startDate, setStartDate] = React.useState(
+		state?.toDate ? new Date(state.toDate) : defaultStartDate,
+	);
+	const [endDate, setEndDate] = React.useState(
 		state?.fromDate ? new Date(state.fromDate) : defaultEndDate,
 	);
-	const [persons, setPersons] = React.useState(state?.persons ? state.persons : { count: 1 });
-	const [filters, setFilters] = React.useState(
-		state?.filters
-			? state.filters
-			: {
-					type: 'all',
-					price: 'all',
-					sort: 'default',
-					amenities: [],
-			  },
-	);
+	const [persons, setPersons] = React.useState(Number(state?.persons?.count || 1));
 
-	const [formState, setFormState] = React.useState({
-		nameValue: initialUserName.firstName,
-		lastNameValue: initialUserName.lastName,
-		telValue: normalizeText(user?.phone),
-		emailValue: normalizeText(user?.email),
-		commentsValue: '',
-		checked: false,
-		type: '',
-	});
-
-	const [validationState, setValidationState] = React.useState({
-		validName: false,
-		validLastName: false,
-		validTel: false,
-		validEmail: false,
-		validChecked: false,
-	});
-
-	const [promoCode, setPromoCode] = React.useState(
-		state?.promoCode || localStorage.getItem(ACTIVE_PROMO_KEY) || '',
-	);
-	const [appliedPromo, setAppliedPromo] = React.useState(null);
-	const [promoStatus, setPromoStatus] = React.useState('idle');
-	const [promoMessage, setPromoMessage] = React.useState('');
-	const [promoDiscount, setPromoDiscount] = React.useState(0);
-
-	const { nameValue, lastNameValue, telValue, emailValue, commentsValue, checked } = formState;
-
-	const routeTypeFromParams = normalizeText(params?.type).toLowerCase();
-	const routeTypeFromPath = getRoomTypeFromPath(pathname);
-	const directRoomType = routeTypeFromParams || routeTypeFromPath;
-
-	const routeRoom = React.useMemo(() => ROOM_CATALOG[directRoomType] || null, [directRoomType]);
-
-	const searchMode = state?.searchMode || '';
-
-	const isMainSearchList = searchMode === 'main-search-list';
-	const isMainSearchRoom = searchMode === 'main-search-room';
-	const isDirectRoomState = searchMode === 'direct-room';
-
-	const hasStateData = Boolean(state);
-	const hasDirectRoomRoute = Boolean(routeRoom);
-	const isDirectRoomBooking = isDirectRoomState || hasDirectRoomRoute;
-	const shouldShowTopBookingBar = isDirectRoomBooking;
+	const [firstName, setFirstName] = React.useState(parsedUserName.firstName || '');
+	const [lastName, setLastName] = React.useState(parsedUserName.lastName || '');
+	const [phone, setPhone] = React.useState(normalizeText(user?.phone));
+	const [email, setEmail] = React.useState(normalizeText(user?.email));
+	const [comment, setComment] = React.useState('');
+	const [isChecking, setIsChecking] = React.useState(false);
+	const [isSubmitting, setIsSubmitting] = React.useState(false);
+	const [availabilityMessage, setAvailabilityMessage] = React.useState('');
+	const [availabilityError, setAvailabilityError] = React.useState('');
+	const [submitError, setSubmitError] = React.useState('');
+	const [submitSuccess, setSubmitSuccess] = React.useState('');
+	const [roomAvailable, setRoomAvailable] = React.useState(false);
 
 	React.useEffect(() => {
-		if (!hasStateData && !hasDirectRoomRoute) {
-			navigate('/', { replace: true });
+		if (!firstName && parsedUserName.firstName) {
+			setFirstName(parsedUserName.firstName);
 		}
-	}, [hasStateData, hasDirectRoomRoute, navigate]);
-
-	const effectiveSelectedRoom = React.useMemo(() => {
-		if (isMainSearchRoom || isDirectRoomBooking) {
-			if (selectedRoomData?.id) return selectedRoomData;
-			if (routeRoom) return routeRoom;
+		if (!lastName && parsedUserName.lastName) {
+			setLastName(parsedUserName.lastName);
 		}
-		return {};
-	}, [isMainSearchRoom, isDirectRoomBooking, selectedRoomData, routeRoom]);
+		if (!phone && user?.phone) {
+			setPhone(normalizeText(user.phone));
+		}
+		if (!email && user?.email) {
+			setEmail(normalizeText(user.email));
+		}
+	}, [parsedUserName, user, firstName, lastName, phone, email]);
 
-	React.useEffect(() => {
-		if ((isMainSearchRoom || isDirectRoomBooking) && routeRoom && !selectedRoomData?.id) {
-			dispatch(
-				selectRoom({
-					id: routeRoom.id,
-					name: routeRoom.name,
-					type: routeRoom.type,
-					price: routeRoom.price,
-				}),
+	const nights = React.useMemo(() => getNightsCount(startDate, endDate), [startDate, endDate]);
+	const total = React.useMemo(() => (room ? room.price * nights : 0), [room, nights]);
+
+	const startDateString = React.useMemo(() => getDateToString(startDate), [startDate]);
+	const endDateString = React.useMemo(() => getDateToString(endDate), [endDate]);
+
+	const canIncreasePersons = persons < Number(room?.maxPerson || 1);
+	const canDecreasePersons = persons > 1;
+
+	const goHome = React.useCallback(() => {
+		window.location.href = '/';
+	}, []);
+
+	const handleCheckAvailability = React.useCallback(async () => {
+		setAvailabilityMessage('');
+		setAvailabilityError('');
+		setSubmitError('');
+		setSubmitSuccess('');
+		setRoomAvailable(false);
+
+		if (!room) {
+			setAvailabilityError('Сначала выберите номер на главной странице.');
+			return;
+		}
+
+		if (startDate >= endDate) {
+			setAvailabilityError('Дата выезда должна быть позже даты заезда.');
+			return;
+		}
+
+		if (persons > room.maxPerson) {
+			setAvailabilityError(`Для номера ${room.name} максимум ${room.maxPerson} гостя(ей).`);
+			return;
+		}
+
+		setIsChecking(true);
+
+		try {
+			const response = await axios.get(`${API_BASE}/rooms/`, {
+				params: {
+					start_date: startDateString,
+					end_date: endDateString,
+					persons,
+					type: room.type,
+				},
+				timeout: 30000,
+			});
+
+			const result = response.data || {};
+			const freeCount = Number(result[room.type] || 0);
+
+			if (freeCount > 0) {
+				setRoomAvailable(true);
+				setAvailabilityMessage(`Найдено свободных номеров: ${freeCount}. Можно бронировать.`);
+				return;
+			}
+
+			setAvailabilityError('К сожалению, в указанный период этот номер недоступен.');
+		} catch (error) {
+			console.error('Ошибка проверки доступности:', error);
+			setAvailabilityError(
+				error?.response?.data?.message || 'Не удалось проверить доступность номера.',
 			);
+		} finally {
+			setIsChecking(false);
+		}
+	}, [room, startDate, endDate, persons, startDateString, endDateString]);
+
+	const handleSubmitBooking = React.useCallback(async () => {
+		setSubmitError('');
+		setSubmitSuccess('');
+
+		if (!roomAvailable) {
+			setSubmitError('Сначала нажмите «Проверить доступность».');
+			return;
 		}
 
-		if (isMainSearchList && selectedRoomData?.id) {
-			dispatch(
-				selectRoom({
-					id: null,
-					name: '',
-					type: '',
-					price: 0,
-				}),
+		if (!normalizeText(firstName) || !normalizeText(email) || !normalizeText(phone)) {
+			setSubmitError('Заполните имя, email и телефон.');
+			return;
+		}
+
+		const payload = {
+			first_name: normalizeText(firstName),
+			last_name: normalizeText(lastName),
+			phone_number: normalizeText(phone),
+			email: normalizeText(email).toLowerCase(),
+			comment: normalizeText(comment),
+			amount: persons,
+			nights,
+			price: room.price,
+			type: room.type,
+			start_date: startDateString,
+			end_date: endDateString,
+			total_price: total,
+			promo_code: '',
+			promo_discount: 0,
+		};
+
+		setIsSubmitting(true);
+
+		try {
+			await axios.post(`${API_BASE}/book/`, payload, {
+				headers: { 'Content-Type': 'application/json' },
+				timeout: BOOKING_TIMEOUT_MS,
+			});
+
+			setSubmitSuccess('Бронирование успешно создано.');
+			setTimeout(() => {
+				window.location.href = '/profile';
+			}, 1200);
+		} catch (error) {
+			console.error('Ошибка бронирования:', error);
+
+			if (isAxiosTimeout(error)) {
+				const createdBooking = await findCreatedBooking({
+					email: payload.email,
+					roomType: payload.type,
+					startDate: payload.start_date,
+					endDate: payload.end_date,
+				});
+
+				if (createdBooking) {
+					setSubmitSuccess('Бронирование создано. Ответ сервера пришёл с задержкой.');
+					setTimeout(() => {
+						window.location.href = '/profile';
+					}, 1200);
+					setIsSubmitting(false);
+					return;
+				}
+			}
+
+			setSubmitError(
+				error?.response?.data?.message || 'Не удалось завершить бронирование. Попробуйте ещё раз.',
 			);
+		} finally {
+			setIsSubmitting(false);
 		}
 	}, [
-		dispatch,
-		isMainSearchList,
-		isMainSearchRoom,
-		isDirectRoomBooking,
-		routeRoom,
-		selectedRoomData?.id,
+		roomAvailable,
+		firstName,
+		lastName,
+		phone,
+		email,
+		comment,
+		persons,
+		nights,
+		room,
+		startDateString,
+		endDateString,
+		total,
 	]);
 
-	React.useEffect(() => {
-		const parsed = splitUserName(user?.name);
-
-		setFormState((prev) => ({
-			...prev,
-			nameValue: prev.nameValue || parsed.firstName,
-			lastNameValue: prev.lastNameValue || parsed.lastName,
-			telValue: prev.telValue || normalizeText(user?.phone),
-			emailValue: prev.emailValue || normalizeText(user?.email),
-		}));
-	}, [user]);
-
-	const getPersonsCount = React.useCallback(() => {
-		if (typeof persons?.count === 'number') return persons.count;
-
-		const adults = Number(persons?.adults || 0);
-		const child = Number(persons?.child || 0);
-		const total = adults + child;
-
-		return total > 0 ? total : 1;
-	}, [persons]);
-
-	const getNightsValue = () => {
-		return getNightsCount(toDate, fromDate);
-	};
-
-	const getBaseTotal = () => {
-		const roomPrice = Number(effectiveSelectedRoom?.price || 0);
-		return roomPrice * getNightsValue();
-	};
-
-	const finalTotal = Math.max(getBaseTotal() - promoDiscount, 0);
-
-	const handleSubmit = React.useCallback(() => {
-		dispatch(
-			getRooms({
-				start_date: getDateToString(toDate),
-				end_date: getDateToString(fromDate),
-				persons: getPersonsCount(),
-				type: isDirectRoomBooking ? effectiveSelectedRoom?.type || directRoomType || '' : '',
-			}),
+	if (!room) {
+		return (
+			<div>
+				<Header />
+				<div style={pageWrap}>
+					<div style={card}>
+						<h1 style={title}>Номер не выбран</h1>
+						<p style={text}>
+							Страница бронирования открылась без типа номера.
+						</p>
+						<p style={text}>Нажмите кнопку ниже и выберите номер на главной странице.</p>
+						<button type="button" style={primaryButton} onClick={goHome}>
+							Выбрать номер
+						</button>
+					</div>
+				</div>
+				<Footer main={false} />
+			</div>
 		);
-	}, [dispatch, toDate, fromDate, getPersonsCount, isDirectRoomBooking, effectiveSelectedRoom, directRoomType]);
-
-	React.useEffect(() => {
-		handleSubmit();
-	}, [handleSubmit]);
-
-	const applyPromo = async () => {
-		const code = normalizeText(promoCode).toUpperCase();
-
-		if (!code) {
-			setAppliedPromo(null);
-			setPromoDiscount(0);
-			setPromoStatus('error');
-			setPromoMessage('Введите промокод');
-			return;
-		}
-
-		const foundPromo = promotionsData.find((item) => item.code.toUpperCase() === code);
-
-		if (!foundPromo) {
-			setAppliedPromo(null);
-			setPromoDiscount(0);
-			setPromoStatus('error');
-			setPromoMessage('Промокод не найден');
-			return;
-		}
-
-		const nights = getNightsValue();
-		const selectedType = normalizeText(effectiveSelectedRoom?.type).toLowerCase();
-		const allowedTypes = (foundPromo.roomTypes || []).map((item) => normalizeText(item).toLowerCase());
-
-		if (allowedTypes.length && selectedType && !allowedTypes.includes(selectedType)) {
-			setAppliedPromo(null);
-			setPromoDiscount(0);
-			setPromoStatus('error');
-			setPromoMessage('Этот промокод не подходит для выбранного номера');
-			return;
-		}
-
-		if (Number(foundPromo.minNights || 0) > nights) {
-			setAppliedPromo(null);
-			setPromoDiscount(0);
-			setPromoStatus('error');
-			setPromoMessage(`Промокод действует при бронировании от ${foundPromo.minNights} ночей`);
-			return;
-		}
-
-		const baseTotal = getBaseTotal();
-		let discount = 0;
-
-		if (foundPromo.discountType === 'percent') {
-			discount = Math.round((baseTotal * Number(foundPromo.discountValue || 0)) / 100);
-		} else {
-			discount = Number(foundPromo.discountValue || 0);
-		}
-
-		setAppliedPromo(foundPromo);
-		setPromoDiscount(discount);
-		setPromoStatus('success');
-		setPromoMessage(`Промокод ${foundPromo.code} успешно применён`);
-		localStorage.setItem(ACTIVE_PROMO_KEY, foundPromo.code);
-
-		try {
-			const currentUserRaw = localStorage.getItem('hotel_current_user');
-			const currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null;
-
-			await axios.post(`${API_BASE}/promotions/track/`, {
-				user_id: currentUser?.id || null,
-				email: currentUser?.email || normalizeText(emailValue),
-				promo_code: foundPromo.code,
-				promo_title: foundPromo.title,
-				discount_label: foundPromo.discountLabel,
-				event_type: 'apply',
-				page: 'reservation',
-			});
-		} catch (error) {
-			console.error('Ошибка сохранения события акции:', error);
-		}
-	};
-
-	const removePromo = () => {
-		setPromoCode('');
-		setAppliedPromo(null);
-		setPromoDiscount(0);
-		setPromoStatus('idle');
-		setPromoMessage('');
-		localStorage.removeItem(ACTIVE_PROMO_KEY);
-	};
-
-	const validateForm = () => {
-		const safeName = normalizeText(nameValue);
-		const safeLastName = normalizeText(lastNameValue);
-		const safePhone = normalizeText(telValue);
-		const safeEmail = normalizeText(emailValue);
-
-		const nextValidation = {
-			validName: !cyrillicPattern.test(safeName),
-			validLastName: !cyrillicPattern.test(safeLastName),
-			validTel: !telPattern.test(safePhone),
-			validEmail: !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail),
-			validChecked: !checked,
-		};
-
-		setValidationState(nextValidation);
-
-		return !Object.values(nextValidation).some(Boolean);
-	};
-
-	const bookSubmit = async () => {
-		if (!validateForm()) return;
-
-		const safeName = normalizeText(nameValue);
-		const safeLastName = normalizeText(lastNameValue);
-		const safePhone = normalizeText(telValue);
-		const safeEmail = normalizeText(emailValue);
-		const safeComment = normalizeText(commentsValue);
-
-		const bookingPayload = {
-			first_name: safeName,
-			last_name: safeLastName,
-			phone_number: safePhone,
-			email: safeEmail,
-			comment: safeComment,
-			start_date: getDateToString(toDate),
-			end_date: getDateToString(fromDate),
-			amount: getPersonsCount(),
-			type: effectiveSelectedRoom?.type || directRoomType || '',
-			nights: getNightsValue(),
-			promo_code: appliedPromo?.code || '',
-			promo_discount: promoDiscount || 0,
-			total_price: finalTotal || getBaseTotal(),
-		};
-
-		try {
-			await dispatch(sendBook(bookingPayload)).unwrap();
-			onOpen();
-
-			toast({
-				title: 'Бронирование успешно оформлено',
-				status: 'success',
-				duration: 3000,
-				isClosable: true,
-				position: 'top',
-			});
-
-			setFormState((prev) => ({
-				...prev,
-				nameValue: '',
-				lastNameValue: '',
-				telValue: '',
-				emailValue: user?.email || '',
-				commentsValue: '',
-				checked: false,
-			}));
-
-			removePromo();
-		} catch (error) {
-			toast({
-				title: 'Ошибка бронирования',
-				description: error?.message || errorMessage || 'Попробуйте ещё раз',
-				status: 'error',
-				duration: 4000,
-				isClosable: true,
-				position: 'top',
-			});
-		}
-	};
-
-	React.useEffect(() => {
-		if (state?.promoCode) {
-			setPromoCode(state.promoCode);
-		}
-	}, [state]);
-
-	const directPanelStyles = {
-		wrap: {
-			width: '100%',
-			maxWidth: '1120px',
-			margin: '110px auto 32px',
-			padding: '18px',
-			borderRadius: '24px',
-			background: 'rgba(242, 233, 225, 0.95)',
-			backdropFilter: 'blur(8px)',
-			boxShadow: '0 14px 32px rgba(86, 58, 46, 0.08)',
-			border: '1px solid rgba(135, 91, 82, 0.12)',
-			boxSizing: 'border-box',
-			position: 'relative',
-			zIndex: 2,
-		},
-		grid: {
-			display: 'grid',
-			gridTemplateColumns: '1fr 1fr 1fr 240px',
-			gap: '16px',
-			alignItems: 'end',
-		},
-		field: {
-			display: 'flex',
-			flexDirection: 'column',
-			gap: '8px',
-		},
-		label: {
-			fontSize: '13px',
-			fontWeight: 700,
-			color: '#9b7a69',
-			textTransform: 'uppercase',
-			letterSpacing: '0.03em',
-		},
-		input: {
-			width: '100%',
-			height: '62px',
-			borderRadius: '16px',
-			border: '1px solid rgba(135, 91, 82, 0.18)',
-			background: '#fff',
-			padding: '0 16px',
-			fontSize: '22px',
-			color: '#6e493a',
-			boxSizing: 'border-box',
-		},
-		guestBox: {
-			height: '62px',
-			borderRadius: '16px',
-			border: '1px solid rgba(135, 91, 82, 0.18)',
-			background: '#fff',
-			padding: '0 16px',
-			display: 'flex',
-			alignItems: 'center',
-			justifyContent: 'space-between',
-			boxSizing: 'border-box',
-		},
-		guestCount: {
-			fontSize: '24px',
-			fontWeight: 700,
-			color: '#6e493a',
-			minWidth: '36px',
-			textAlign: 'center',
-		},
-		guestBtn: {
-			width: '36px',
-			height: '36px',
-			borderRadius: '50%',
-			border: '1px solid rgba(135, 91, 82, 0.18)',
-			background: '#fff8f4',
-			color: '#6e493a',
-			fontSize: '24px',
-			cursor: 'pointer',
-			lineHeight: 1,
-		},
-		submit: {
-			width: '100%',
-			height: '62px',
-			border: 'none',
-			borderRadius: '16px',
-			background: 'linear-gradient(135deg, #8a5d48 0%, #6e493a 100%)',
-			color: '#fff',
-			fontSize: '20px',
-			fontWeight: 700,
-			cursor: 'pointer',
-			boxShadow: '0 12px 24px rgba(111, 73, 57, 0.18)',
-		},
-	};
-
-	if (!hasStateData && !hasDirectRoomRoute) {
-		return null;
 	}
 
-	const contentSpacingStyle = shouldShowTopBookingBar
-		? {}
-		: {
-				paddingTop: '110px',
-		  };
-
 	return (
-		<div className={styles.page}>
-			<Header main={false} />
+		<div>
+			<Header />
+			<div style={pageWrap}>
+				<div style={container}>
+					<div style={card}>
+						<h1 style={title}>{room.name}</h1>
 
-			<div className={styles.container}>
-				<div className={styles.content} style={contentSpacingStyle}>
-					{shouldShowTopBookingBar ? (
-						<div style={directPanelStyles.wrap}>
-							<div style={directPanelStyles.grid}>
-								<div style={directPanelStyles.field}>
-									<span style={directPanelStyles.label}>Заезд</span>
-									<input
-										type="date"
-										value={formatInputDate(toDate)}
-										onChange={(e) => {
-											const nextDate = new Date(e.target.value);
-											nextDate.setHours(0, 0, 0, 0);
-											setToDate(nextDate);
+						<div style={grid}>
+							<div style={fieldBox}>
+								<label style={label}>Заезд</label>
+								<input
+									type="date"
+									value={startDateString}
+									onChange={(e) => setStartDate(new Date(e.target.value))}
+									style={input}
+								/>
+							</div>
 
-											if (fromDate <= nextDate) {
-												const nextFrom = new Date(nextDate);
-												nextFrom.setDate(nextFrom.getDate() + 1);
-												nextFrom.setHours(0, 0, 0, 0);
-												setFromDate(nextFrom);
-											}
-										}}
-										style={directPanelStyles.input}
-									/>
+							<div style={fieldBox}>
+								<label style={label}>Выезд</label>
+								<input
+									type="date"
+									value={endDateString}
+									onChange={(e) => setEndDate(new Date(e.target.value))}
+									style={input}
+								/>
+							</div>
+
+							<div style={fieldBox}>
+								<label style={label}>Гости</label>
+								<div style={guestRow}>
+									<button
+										type="button"
+										style={guestButton}
+										onClick={() => canDecreasePersons && setPersons((prev) => prev - 1)}
+									>
+										−
+									</button>
+									<div style={guestCount}>{persons}</div>
+									<button
+										type="button"
+										style={guestButton}
+										onClick={() => canIncreasePersons && setPersons((prev) => prev + 1)}
+									>
+										+
+									</button>
 								</div>
+							</div>
 
-								<div style={directPanelStyles.field}>
-									<span style={directPanelStyles.label}>Выезд</span>
-									<input
-										type="date"
-										value={formatInputDate(fromDate)}
-										min={formatInputDate(new Date(toDate.getTime() + 24 * 60 * 60 * 1000))}
-										onChange={(e) => {
-											const nextDate = new Date(e.target.value);
-											nextDate.setHours(0, 0, 0, 0);
-											setFromDate(nextDate);
-										}}
-										style={directPanelStyles.input}
-									/>
+							<div style={fieldBox}>
+								<label style={label}>Цена</label>
+								<div style={summaryBox}>
+									{room.price} ₽ / ночь · {nights} ноч. · {total} ₽
 								</div>
-
-								<div style={directPanelStyles.field}>
-									<span style={directPanelStyles.label}>Количество гостей</span>
-									<div style={directPanelStyles.guestBox}>
-										<button
-											type="button"
-											style={directPanelStyles.guestBtn}
-											onClick={() => {
-												const current = getPersonsCount();
-												if (current > 1) {
-													setPersons({ count: current - 1 });
-												}
-											}}
-										>
-											−
-										</button>
-
-										<div style={directPanelStyles.guestCount}>{getPersonsCount()}</div>
-
-										<button
-											type="button"
-											style={directPanelStyles.guestBtn}
-											onClick={() => {
-												const current = getPersonsCount();
-												const maxGuests = Number(effectiveSelectedRoom?.maxPerson || 10);
-
-												if (current < maxGuests) {
-													setPersons({ count: current + 1 });
-												}
-											}}
-										>
-											+
-										</button>
-									</div>
-								</div>
-
-								<button type="button" style={directPanelStyles.submit} onClick={handleSubmit}>
-									Проверить доступность
-								</button>
 							</div>
 						</div>
-					) : null}
 
-					<LoaderData
-						toDate={toDate}
-						fromDate={fromDate}
-						formState={formState}
-						setFormState={setFormState}
-						validationState={validationState}
-						setValidationState={setValidationState}
-						bookSubmit={bookSubmit}
-						persons={persons}
-						filters={filters}
-						promoCode={promoCode}
-						setPromoCode={setPromoCode}
-						applyPromo={applyPromo}
-						removePromo={removePromo}
-						promoStatus={promoStatus}
-						promoMessage={promoMessage}
-						appliedPromo={appliedPromo}
-						promoDiscount={promoDiscount}
-						baseTotal={getBaseTotal()}
-						finalTotal={finalTotal}
-						selectedRoomData={effectiveSelectedRoom}
-						isDirectRoomBooking={isDirectRoomBooking || isMainSearchRoom}
-					/>
+						<div style={buttonRow}>
+							<button type="button" style={secondaryButton} onClick={goHome}>
+								На главную
+							</button>
+							<button
+								type="button"
+								style={primaryButton}
+								onClick={handleCheckAvailability}
+								disabled={isChecking}
+							>
+								{isChecking ? 'Проверяем...' : 'Проверить доступность'}
+							</button>
+						</div>
 
-					<ModalStatus
-						isOpen={isOpen}
-						onClose={onClose}
-						goMain={true}
-						isError={isError}
-						isSuccess={isSuccess}
-					/>
+						{availabilityMessage ? <div style={successBox}>{availabilityMessage}</div> : null}
+						{availabilityError ? <div style={errorBox}>{availabilityError}</div> : null}
+					</div>
+
+					<div style={card}>
+						<h2 style={subtitle}>Данные для бронирования</h2>
+
+						<div style={grid}>
+							<div style={fieldBox}>
+								<label style={label}>Имя</label>
+								<input value={firstName} onChange={(e) => setFirstName(e.target.value)} style={input} />
+							</div>
+
+							<div style={fieldBox}>
+								<label style={label}>Фамилия</label>
+								<input value={lastName} onChange={(e) => setLastName(e.target.value)} style={input} />
+							</div>
+
+							<div style={fieldBox}>
+								<label style={label}>Телефон</label>
+								<input value={phone} onChange={(e) => setPhone(e.target.value)} style={input} />
+							</div>
+
+							<div style={fieldBox}>
+								<label style={label}>Email</label>
+								<input value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
+							</div>
+						</div>
+
+						<div style={fieldBox}>
+							<label style={label}>Комментарий</label>
+							<textarea
+								value={comment}
+								onChange={(e) => setComment(e.target.value)}
+								style={textarea}
+							/>
+						</div>
+
+						<div style={buttonRow}>
+							<button
+								type="button"
+								style={successButton}
+								onClick={handleSubmitBooking}
+								disabled={isSubmitting}
+							>
+								{isSubmitting ? 'Создаём бронирование...' : 'Забронировать'}
+							</button>
+						</div>
+
+						{submitSuccess ? <div style={successBox}>{submitSuccess}</div> : null}
+						{submitError ? <div style={errorBox}>{submitError}</div> : null}
+					</div>
 				</div>
 			</div>
-
 			<Footer main={false} />
 		</div>
 	);
 }
+
+const pageWrap = {
+	minHeight: '70vh',
+	padding: '32px 16px',
+	background: '#f7f4f1',
+};
+
+const container = {
+	maxWidth: '1100px',
+	margin: '0 auto',
+	display: 'grid',
+	gap: '24px',
+};
+
+const card = {
+	background: '#ffffff',
+	borderRadius: '20px',
+	padding: '24px',
+	boxShadow: '0 12px 30px rgba(0, 0, 0, 0.08)',
+};
+
+const title = {
+	fontSize: '32px',
+	fontWeight: 700,
+	marginBottom: '20px',
+};
+
+const subtitle = {
+	fontSize: '24px',
+	fontWeight: 700,
+	marginBottom: '20px',
+};
+
+const text = {
+	fontSize: '16px',
+	lineHeight: 1.6,
+	marginBottom: '14px',
+};
+
+const grid = {
+	display: 'grid',
+	gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+	gap: '16px',
+	marginBottom: '18px',
+};
+
+const fieldBox = {
+	display: 'flex',
+	flexDirection: 'column',
+	gap: '8px',
+};
+
+const label = {
+	fontSize: '14px',
+	fontWeight: 600,
+	color: '#5b4638',
+};
+
+const input = {
+	width: '100%',
+	height: '48px',
+	padding: '0 14px',
+	borderRadius: '12px',
+	border: '1px solid #d8c9bd',
+	fontSize: '16px',
+};
+
+const textarea = {
+	width: '100%',
+	minHeight: '120px',
+	padding: '14px',
+	borderRadius: '12px',
+	border: '1px solid #d8c9bd',
+	fontSize: '16px',
+	resize: 'vertical',
+};
+
+const guestRow = {
+	display: 'flex',
+	alignItems: 'center',
+	gap: '12px',
+};
+
+const guestButton = {
+	width: '42px',
+	height: '42px',
+	borderRadius: '50%',
+	border: '1px solid #c7b1a1',
+	background: '#fff',
+	cursor: 'pointer',
+	fontSize: '22px',
+};
+
+const guestCount = {
+	minWidth: '36px',
+	textAlign: 'center',
+	fontSize: '20px',
+	fontWeight: 700,
+};
+
+const summaryBox = {
+	height: '48px',
+	display: 'flex',
+	alignItems: 'center',
+	padding: '0 14px',
+	borderRadius: '12px',
+	background: '#f5eee8',
+	fontWeight: 600,
+};
+
+const buttonRow = {
+	display: 'flex',
+	flexWrap: 'wrap',
+	gap: '12px',
+	marginTop: '12px',
+};
+
+const primaryButton = {
+	height: '48px',
+	padding: '0 20px',
+	borderRadius: '12px',
+	border: 'none',
+	background: '#8b5b44',
+	color: '#fff',
+	fontSize: '16px',
+	fontWeight: 700,
+	cursor: 'pointer',
+};
+
+const secondaryButton = {
+	height: '48px',
+	padding: '0 20px',
+	borderRadius: '12px',
+	border: '1px solid #c7b1a1',
+	background: '#fff',
+	color: '#4a3529',
+	fontSize: '16px',
+	fontWeight: 700,
+	cursor: 'pointer',
+};
+
+const successButton = {
+	height: '48px',
+	padding: '0 20px',
+	borderRadius: '12px',
+	border: 'none',
+	background: '#2f9d58',
+	color: '#fff',
+	fontSize: '16px',
+	fontWeight: 700,
+	cursor: 'pointer',
+};
+
+const successBox = {
+	marginTop: '16px',
+	padding: '14px 16px',
+	borderRadius: '12px',
+	background: '#e9f8ef',
+	color: '#17663a',
+	fontWeight: 600,
+};
+
+const errorBox = {
+	marginTop: '16px',
+	padding: '14px 16px',
+	borderRadius: '12px',
+	background: '#fdeaea',
+	color: '#a12626',
+	fontWeight: 600,
+};
 
 export default ReservationPage;
