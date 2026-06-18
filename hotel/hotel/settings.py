@@ -18,6 +18,8 @@ ALLOWED_HOSTS = [
     'localhost',
     '.onrender.com',
     '.vercel.app',
+    '.up.railway.app',
+    'hot-site-production.up.railway.app',
     'отель-комфорт.рф',
     'апи.отель-комфорт.рф',
     'xn----8sbnc1aqybdg6c1cg.xn--p1ai',
@@ -133,6 +135,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://xn--80aqu.xn----8sbnc1aqybdg6c1cg.xn--p1ai',
     'https://*.onrender.com',
     'https://*.vercel.app',
+    'https://*.up.railway.app',
+    'https://hot-site-production.up.railway.app',
 ]
 
 REST_FRAMEWORK = {
