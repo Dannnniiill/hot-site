@@ -141,41 +141,7 @@ def send_code_email(email, code):
 
 
 def send_booking_email(email, booking, action='created'):
-    if not clean_text(email):
-        return
-
-    if action == 'created':
-        subject = f'Бронирование {booking.booking_number} создано'
-        message = (
-            f'Ваше бронирование успешно создано.\n\n'
-            f'Номер заявки: {booking.booking_number}\n'
-            f'Тип номера: {booking.type}\n'
-            f'Номер комнаты: {booking.number}\n'
-            f'Заезд: {booking.start_date}\n'
-            f'Выезд: {booking.end_date}\n'
-            f'Гостей: {booking.amount}\n'
-            f'Ночей: {booking.nights}\n'
-            f'Стоимость: {booking.total_price} ₽\n'
-            f'Статус: {booking.status}\n'
-        )
-    else:
-        subject = f'Бронирование {booking.booking_number} отменено'
-        message = (
-            f'Ваше бронирование отменено.\n\n'
-            f'Номер заявки: {booking.booking_number}\n'
-            f'Тип номера: {booking.type}\n'
-            f'Заезд: {booking.start_date}\n'
-            f'Выезд: {booking.end_date}\n'
-            f'Статус: {booking.status}\n'
-        )
-
-    send_mail(
-        subject=subject,
-        message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
-        fail_silently=False,
-    )
+    return True
 
 
 def create_notification(user, email, title, message, notification_type):
