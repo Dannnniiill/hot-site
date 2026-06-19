@@ -6,27 +6,32 @@ import { clearRooms, getRooms } from '../../../Redux/slices/userSlice';
 import { useToast } from '@chakra-ui/react';
 import { getDateToString } from '../../../constats';
 
-function PreviewBlock({ filters, setFilters }) {
+function PreviewBlock({ filters, setFilters, personsCount, setPersonsCount }) {
 	const dispatch = useDispatch();
 	const toast = useToast();
 	const [toDate, setToDate] = React.useState(new Date());
 	const [fromDate, setFromDate] = React.useState(new Date());
-	const [persons, setPersons] = React.useState({ count: 1 });
+	const [persons, setPersons] = React.useState({ count: personsCount || 1 });
 
-	const getPersonsCount = () => {
+	const getPersonsCount = React.useCallback(() => {
 		if (typeof persons?.count === 'number') return persons.count;
 		const adults = Number(persons?.adults || 0);
 		const child = Number(persons?.child || 0);
 		const total = adults + child;
 		return total > 0 ? total : 1;
-	};
+	}, [persons]);
+
+	React.useEffect(() => {
+		setPersonsCount(getPersonsCount());
+	}, [persons, getPersonsCount, setPersonsCount]);
 
 	const handleSubmit = () => {
-		const personsCount = getPersonsCount();
+		const currentPersonsCount = getPersonsCount();
+		setPersonsCount(currentPersonsCount);
 
 		if (fromDate > toDate) {
-			if (personsCount > 0) {
-				if (personsCount > 4) {
+			if (currentPersonsCount > 0) {
+				if (currentPersonsCount > 4) {
 					dispatch(clearRooms());
 					toast({
 						title: 'Внимание',
@@ -43,7 +48,7 @@ function PreviewBlock({ filters, setFilters }) {
 					getRooms({
 						start_date: getDateToString(toDate),
 						end_date: getDateToString(fromDate),
-						persons: personsCount,
+						persons: currentPersonsCount,
 					}),
 				);
 			} else {

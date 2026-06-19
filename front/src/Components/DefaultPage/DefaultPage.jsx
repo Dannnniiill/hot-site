@@ -27,6 +27,8 @@ function DefaultPage() {
 		amenities: [],
 	});
 
+	const [personsCount, setPersonsCount] = React.useState(1);
+
 	React.useEffect(() => {
 		window.scrollTo(0, 0);
 		dispatch(selectRoom({}));
@@ -36,11 +38,18 @@ function DefaultPage() {
 	return (
 		<div>
 			<Header main={true} />
-			<PreviewBlock filters={filters} setFilters={setFilters} />
+
+			<PreviewBlock
+				filters={filters}
+				setFilters={setFilters}
+				personsCount={personsCount}
+				setPersonsCount={setPersonsCount}
+			/>
+
 			<About />
 			<Promotions />
 			<Preferences />
-			<Rooms data={null} filters={filters} />
+			<Rooms data={null} filters={filters} personsCount={personsCount} />
 			<Services />
 			<Gallery />
 			<FAQ />
