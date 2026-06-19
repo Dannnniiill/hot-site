@@ -97,7 +97,11 @@ function DateFrame({
 		: `${styles.filters__modal} ${styles.filters__modal__bottom}`;
 
 	const canNavigateToReservation =
-		fromDate > toDate && window.location.pathname === '/' && currentCount > 0 && canUseFilters;
+		fromDate > toDate &&
+		window.location.pathname === '/' &&
+		currentCount > 0 &&
+		currentCount <= 4 &&
+		canUseFilters;
 
 	return (
 		<div className={!main ? `${styles.date__frame} ${styles.without__bg}` : styles.date__frame}>
