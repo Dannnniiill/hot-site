@@ -51,6 +51,7 @@ function ProfilePage() {
 	const { user, logout, updateProfile, isAdmin } = useAuth();
 	const navigate = useNavigate();
 
+	const [viewportWidth, setViewportWidth] = React.useState(window.innerWidth);
 	const [refreshKey, setRefreshKey] = React.useState(0);
 	const [isEditing, setIsEditing] = React.useState(false);
 	const [message, setMessage] = React.useState('');
@@ -60,13 +61,29 @@ function ProfilePage() {
 
 	const [bookings, setBookings] = React.useState([]);
 	const [notifications, setNotifications] = React.useState([]);
+	const [totalNotificationsCount, setTotalNotificationsCount] = React.useState(0);
 	const [bookingsLoading, setBookingsLoading] = React.useState(false);
 
 	const [formData, setFormData] = React.useState({
 		name: '',
 		email: '',
 		phone: '',
+		password: '',
 	});
+
+	React.useEffect(() => {
+		const handleResize = () => setViewportWidth(window.innerWidth);
+		window.addEventListener('resize', handleResize);
+		return () => window.removeEventListener('resize', handleResize);
+	}, []);
+
+	const isTablet = viewportWidth <= 1024;
+	const isMobile = viewportWidth <= 768;
+	const isSmallMobile = viewportWidth <= 480;
+	const styles = React.useMemo(
+		() => buildStyles({ isTablet, isMobile, isSmallMobile }),
+		[isTablet, isMobile, isSmallMobile],
+	);
 
 	React.useEffect(() => {
 		if (user) {
@@ -74,6 +91,7 @@ function ProfilePage() {
 				name: user.name || '',
 				email: user.email || '',
 				phone: user.phone || '',
+				password: '',
 			});
 		}
 	}, [user]);
@@ -103,9 +121,7 @@ function ProfilePage() {
 			} catch (error) {
 				console.error('Ошибка загрузки бронирований:', error);
 				setBookings([]);
-				setMessage(
-					error?.response?.data?.message || 'Не удалось загрузить бронирования'
-				);
+				setMessage(error?.response?.data?.message || 'Не удалось загрузить бронирования');
 				setMessageType('error');
 			} finally {
 				setBookingsLoading(false);
@@ -118,9 +134,16 @@ function ProfilePage() {
 
 				const rawNotifications = extractArrayFromResponse(notificationsRes.data);
 				setNotifications(rawNotifications);
+
+				if (typeof notificationsRes.data?.count === 'number') {
+					setTotalNotificationsCount(notificationsRes.data.count);
+				} else {
+					setTotalNotificationsCount(rawNotifications.length);
+				}
 			} catch (error) {
 				console.error('Ошибка загрузки уведомлений:', error);
 				setNotifications([]);
+				setTotalNotificationsCount(0);
 			}
 		};
 
@@ -144,19 +167,15 @@ function ProfilePage() {
 
 	const stats = React.useMemo(() => {
 		const total = allUserBookings.length;
+		const active = allUserBookings.filter((item) => item.status !== 'Отменена').length;
 		const canceled = allUserBookings.filter((item) => item.status === 'Отменена').length;
-		const active = total - canceled;
-		const lastBooking = allUserBookings[0] || null;
 
 		return {
 			total,
 			active,
 			canceled,
-			lastBookingDate: lastBooking ? formatDateTime(lastBooking.createdAt) : 'Нет данных',
 		};
 	}, [allUserBookings]);
-
-	const unreadNotificationsCount = notifications.filter((item) => !item.is_read).length;
 
 	const handleLogout = () => {
 		logout();
@@ -197,423 +216,530 @@ function ProfilePage() {
 			return;
 		}
 
-		try {
-			const result = await updateProfile({
-				name: formData.name.trim(),
-				email: formData.email.trim(),
-				phone: formData.phone.trim(),
-			});
+		const payload = {
+			name: formData.name.trim(),
+			email: formData.email.trim(),
+			phone: formData.phone.trim(),
+		};
 
-			if (!result.success) {
-				setMessage(result.message || 'Не удалось обновить профиль');
-				setMessageType('error');
-				return;
-			}
-
-			setMessage(result.message || 'Профиль успешно обновлен');
-			setMessageType('success');
-			setIsEditing(false);
-			setRefreshKey((prev) => prev + 1);
-		} catch (error) {
-			console.error('Ошибка обновления профиля:', error);
-			setMessage('Не удалось обновить профиль');
-			setMessageType('error');
+		if (formData.password.trim()) {
+			payload.password = formData.password.trim();
 		}
+
+		const result = await updateProfile(payload);
+
+		if (!result.success) {
+			setMessage(result.message);
+			setMessageType('error');
+			return;
+		}
+
+		setMessage('Данные профиля успешно сохранены');
+		setMessageType('success');
+		setIsEditing(false);
+		setFormData((prev) => ({ ...prev, password: '' }));
+		setRefreshKey((prev) => prev + 1);
 	};
 
 	const handleCancelEdit = () => {
-		setFormData({
-			name: user?.name || '',
-			email: user?.email || '',
-			phone: user?.phone || '',
-		});
-		setIsEditing(false);
+		if (user) {
+			setFormData({
+				name: user.name || '',
+				email: user.email || '',
+				phone: user.phone || '',
+				password: '',
+			});
+		}
 		setMessage('');
 		setMessageType('');
+		setIsEditing(false);
 	};
 
-	const handleRepeatBooking = (booking) => {
-		const roomType = String(booking?.type || 'standard').trim().toLowerCase();
-		const safeRoomType =
-			roomType === 'luxe plus' || roomType === 'luxe premium' || roomType === 'luxe' || roomType === 'standard'
-				? roomType
-				: 'standard';
-
-		navigate(`/reservation/${encodeURIComponent(safeRoomType)}`, {
-			state: {
-				searchMode: 'direct-room',
-				toDate: booking.start_date ? new Date(booking.start_date).toISOString() : new Date().toISOString(),
-				fromDate: booking.end_date
-					? new Date(booking.end_date).toISOString()
-					: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-				persons: { count: Number(booking.amount) || 1 },
-				filters: {
-					type: 'all',
-					price: 'all',
-					sort: 'default',
-					amenities: [],
-				},
-			},
-		});
-	};
-
-	const handleCancelBooking = async () => {
-		if (!bookingToCancel?.id) return;
+	const confirmCancelBooking = async () => {
+		if (!bookingToCancel || !user?.email) return;
 
 		try {
 			await axios.post(`${API_BASE}/bookings/cancel/`, {
-				id: bookingToCancel.id,
-				email: user?.email || '',
+				booking_id: bookingToCancel.id,
+				email: String(user.email || '').trim().toLowerCase(),
 			});
 
 			setBookingToCancel(null);
-			setMessage('Бронирование успешно отменено');
-			setMessageType('success');
 			setRefreshKey((prev) => prev + 1);
 		} catch (error) {
-			console.error('Ошибка отмены бронирования:', error);
 			setMessage(error?.response?.data?.message || 'Не удалось отменить бронирование');
 			setMessageType('error');
 			setBookingToCancel(null);
 		}
 	};
 
-	return (
-		<div style={styles.page}>
-			<div style={styles.container}>
-				<div style={styles.headerCard}>
-					<div style={styles.userInfoBlock}>
-						<div style={styles.avatar}>{(user?.name || 'U').charAt(0).toUpperCase()}</div>
-						<div style={styles.headerTextBlock}>
-							<h1 style={styles.pageTitle}>Личный кабинет</h1>
-							<div style={styles.pageSubtitle}>
-								Управляйте бронированиями, редактируйте профиль и отслеживайте статус своих заявок.
-							</div>
-						</div>
-					</div>
+	const handleRepeatBooking = (booking) => {
+		navigate('/reservation', {
+			state: {
+				toDate: booking.start_date ? new Date(booking.start_date) : null,
+				fromDate: booking.end_date ? new Date(booking.end_date) : null,
+				persons: { count: Number(booking.amount) || 1 },
+			},
+		});
+	};
 
-					<div style={styles.quickActionsCard}>
-						<div style={styles.quickActionsTitle}>Быстрые действия</div>
-						<div style={styles.quickActionsButtons}>
+	const markNotificationRead = async (id) => {
+		const previousNotifications = notifications;
+
+		setNotifications((prev) =>
+			prev.map((item) =>
+				item.id === id
+					? {
+							...item,
+							is_read: true,
+					  }
+					: item,
+			),
+		);
+
+		try {
+			await axios.post(`${API_BASE}/notifications/read/`, {
+				notification_id: id,
+				email: String(user?.email || '').trim().toLowerCase(),
+			});
+		} catch (error) {
+			console.error('Ошибка отметки уведомления:', error);
+			setNotifications(previousNotifications);
+			setMessage(error?.response?.data?.message || 'Не удалось отметить уведомление');
+			setMessageType('error');
+		}
+	};
+
+	if (!user) {
+		return (
+			<div style={styles.page}>
+				<div style={styles.container}>
+					<div style={styles.heroCard}>
+						<h1 style={styles.heroTitle}>Вы не авторизованы</h1>
+						<p style={styles.heroText}>Войдите в аккаунт, чтобы открыть личный кабинет.</p>
+						<div style={styles.buttons}>
 							<button style={styles.primaryButton} onClick={() => navigate('/')}>
 								На главную
 							</button>
-							<button style={styles.secondaryButton} onClick={() => navigate('/')}>
-								Забронировать еще
-							</button>
-							{isAdmin ? (
-								<button style={styles.secondaryButton} onClick={() => navigate('/analytics')}>
-									Аналитика
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	const avatarLetter = (user.name || 'Г').trim().charAt(0).toUpperCase();
+
+	return (
+		<div style={styles.page}>
+			<div style={styles.container}>
+				<div style={styles.heroCard}>
+					<div style={styles.topGrid}>
+						<div style={styles.profileHeroLeft}>
+							<div style={styles.profileIdentity}>
+								<div style={styles.avatar}>{avatarLetter}</div>
+
+								<div style={styles.profileTextWrap}>
+									<div style={styles.profileHeading}>Личный кабинет</div>
+									<p style={styles.heroText}>
+										Управляйте бронированиями, редактируйте профиль и отслеживайте статус
+										своих заявок.
+									</p>
+								</div>
+							</div>
+						</div>
+
+						<div style={styles.quickActionsCard}>
+							<div style={styles.quickActionsTitle}>Быстрые действия</div>
+							<div style={styles.quickActionsButtons}>
+								<button style={styles.primaryButton} onClick={() => navigate('/')}>
+									На главную
+								</button>
+								<button style={styles.greenButton} onClick={() => navigate('/reservation')}>
+									Забронировать еще
+								</button>
+								{isAdmin ? (
+									<button style={styles.secondaryButton} onClick={() => navigate('/analytics')}>
+										Аналитика
+									</button>
+								) : null}
+								<button style={styles.logoutButton} onClick={handleLogout}>
+									Выйти
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<div style={styles.statsGrid}>
+						<div style={styles.statCard}>
+							<div style={styles.statLabel}>Всего заявок</div>
+							<div style={styles.statValue}>{stats.total}</div>
+						</div>
+
+						<div style={styles.statCard}>
+							<div style={styles.statLabel}>Активные</div>
+							<div style={styles.statValue}>{stats.active}</div>
+						</div>
+
+						<div style={styles.statCard}>
+							<div style={styles.statLabel}>Отмененные</div>
+							<div style={styles.statValue}>{stats.canceled}</div>
+						</div>
+
+						<div style={styles.statCard}>
+							<div style={styles.statLabel}>Уведомлений</div>
+							<div style={styles.statValue}>{totalNotificationsCount}</div>
+						</div>
+					</div>
+
+					<div style={styles.infoCard}>
+						<div style={styles.cardHeader}>
+							<h2 style={styles.cardTitle}>Профиль</h2>
+
+							{!isEditing ? (
+								<button
+									style={styles.editButton}
+									onClick={() => {
+										setMessage('');
+										setMessageType('');
+										setIsEditing(true);
+									}}
+								>
+									Редактировать
 								</button>
 							) : null}
-							<button style={styles.logoutButton} onClick={handleLogout}>
-								Выйти
-							</button>
 						</div>
-					</div>
-				</div>
 
-				<div style={styles.statsGrid}>
-					<div style={styles.statCard}>
-						<div style={styles.statLabel}>Всего заявок</div>
-						<div style={styles.statValue}>{stats.total}</div>
-					</div>
-
-					<div style={styles.statCard}>
-						<div style={styles.statLabel}>Активные</div>
-						<div style={styles.statValue}>{stats.active}</div>
-					</div>
-
-					<div style={styles.statCard}>
-						<div style={styles.statLabel}>Отмененные</div>
-						<div style={styles.statValue}>{stats.canceled}</div>
-					</div>
-
-					<div style={styles.statCard}>
-						<div style={styles.statLabel}>Уведомлений</div>
-						<div style={styles.statValue}>{unreadNotificationsCount}</div>
-					</div>
-				</div>
-
-				{message ? (
-					<div
-						style={{
-							...styles.messageBox,
-							...(messageType === 'success' ? styles.successMessage : styles.errorMessage),
-						}}
-					>
-						{message}
-					</div>
-				) : null}
-
-				<div style={styles.profileCard}>
-					<div style={styles.sectionHeader}>
-						<h2 style={styles.sectionTitle}>Профиль</h2>
-
-						{!isEditing ? (
-							<button style={styles.editButton} onClick={() => setIsEditing(true)}>
-								Редактировать
-							</button>
+						{message ? (
+							<div
+								style={{
+									...styles.messageBox,
+									...(messageType === 'success' ? styles.successMessage : styles.errorMessage),
+								}}
+							>
+								{message}
+							</div>
 						) : null}
+
+						{isEditing ? (
+							<div style={styles.formBlock}>
+								<div style={styles.inputGroup}>
+									<label style={styles.inputLabel}>Имя</label>
+									<input
+										type="text"
+										name="name"
+										value={formData.name}
+										onChange={handleInputChange}
+										style={styles.input}
+									/>
+								</div>
+
+								<div style={styles.inputGroup}>
+									<label style={styles.inputLabel}>Email</label>
+									<input
+										type="email"
+										name="email"
+										value={formData.email}
+										onChange={handleInputChange}
+										style={styles.input}
+									/>
+								</div>
+
+								<div style={styles.inputGroup}>
+									<label style={styles.inputLabel}>Телефон</label>
+									<input
+										type="tel"
+										name="phone"
+										value={formData.phone}
+										onChange={handleInputChange}
+										style={styles.input}
+										placeholder="+7 (___) ___-__-__"
+										maxLength={18}
+										autoComplete="tel"
+									/>
+								</div>
+
+								<div style={styles.inputGroup}>
+									<label style={styles.inputLabel}>Новый пароль</label>
+									<input
+										type="password"
+										name="password"
+										value={formData.password}
+										onChange={handleInputChange}
+										style={styles.input}
+										placeholder="Введите новый пароль"
+										autoComplete="new-password"
+									/>
+								</div>
+
+								<div style={styles.editButtons}>
+									<button style={styles.saveButton} onClick={handleSaveProfile}>
+										Сохранить
+									</button>
+									<button style={styles.cancelEditButton} onClick={handleCancelEdit}>
+										Отмена
+									</button>
+								</div>
+							</div>
+						) : (
+							<div style={styles.profileGrid}>
+								<div style={styles.infoRowCard}>
+									<div style={styles.infoLabel}>Имя</div>
+									<div style={styles.infoValue}>{user.name}</div>
+								</div>
+
+								<div style={styles.infoRowCard}>
+									<div style={styles.infoLabel}>Email</div>
+									<div style={styles.infoValue}>{user.email}</div>
+								</div>
+
+								<div style={styles.infoRowCard}>
+									<div style={styles.infoLabel}>Телефон</div>
+									<div style={styles.infoValue}>{user.phone}</div>
+								</div>
+
+								<div style={styles.infoRowCard}>
+									<div style={styles.infoLabel}>Пароль</div>
+									<div style={styles.infoValue}>••••••••</div>
+								</div>
+
+								<div style={{ ...styles.infoRowCard, gridColumn: '1 / -1' }}>
+									<div style={styles.infoLabel}>Дата регистрации</div>
+									<div style={styles.infoValue}>{formatDateTime(user.createdAt)}</div>
+								</div>
+							</div>
+						)}
 					</div>
 
-					<div style={styles.profileGrid}>
-						<div style={styles.fieldCard}>
-							<div style={styles.fieldLabel}>Имя</div>
-							{isEditing ? (
-								<input
-									style={styles.input}
-									name="name"
-									value={formData.name}
-									onChange={handleInputChange}
-									placeholder="Введите имя"
-								/>
-							) : (
-								<div style={styles.fieldValue}>{user?.name || 'Не указано'}</div>
-							)}
-						</div>
+					<div style={styles.section}>
+						<div style={styles.sectionTop}>
+							<h2 style={styles.sectionTitle}>Мои бронирования</h2>
 
-						<div style={styles.fieldCard}>
-							<div style={styles.fieldLabel}>Email</div>
-							{isEditing ? (
-								<input
-									style={styles.input}
-									name="email"
-									value={formData.email}
-									onChange={handleInputChange}
-									placeholder="Введите email"
-								/>
-							) : (
-								<div style={styles.fieldValue}>{user?.email || 'Не указано'}</div>
-							)}
-						</div>
+							<div style={styles.filterWrap}>
+								<button
+									style={{
+										...styles.filterButton,
+										...(activeFilter === 'all' ? styles.filterButtonActive : {}),
+									}}
+									onClick={() => setActiveFilter('all')}
+								>
+									Все
+								</button>
 
-						<div style={styles.fieldCard}>
-							<div style={styles.fieldLabel}>Телефон</div>
-							{isEditing ? (
-								<input
-									style={styles.input}
-									name="phone"
-									value={formData.phone}
-									onChange={handleInputChange}
-									placeholder="+7 (999) 999-99-99"
-								/>
-							) : (
-								<div style={styles.fieldValue}>{user?.phone || 'Не указано'}</div>
-							)}
-						</div>
+								<button
+									style={{
+										...styles.filterButton,
+										...(activeFilter === 'active' ? styles.filterButtonActive : {}),
+									}}
+									onClick={() => setActiveFilter('active')}
+								>
+									Активные
+								</button>
 
-						<div style={styles.fieldCard}>
-							<div style={styles.fieldLabel}>Пароль</div>
-							<div style={styles.fieldValue}>••••••••</div>
-						</div>
-
-						<div style={{ ...styles.fieldCard, gridColumn: '1 / -1' }}>
-							<div style={styles.fieldLabel}>Дата регистрации</div>
-							<div style={styles.fieldValue}>
-								{user?.createdAt ? formatDateTime(user.createdAt) : 'Не указана'}
+								<button
+									style={{
+										...styles.filterButton,
+										...(activeFilter === 'canceled' ? styles.filterButtonActive : {}),
+									}}
+									onClick={() => setActiveFilter('canceled')}
+								>
+									Отмененные
+								</button>
 							</div>
 						</div>
-					</div>
 
-					{isEditing ? (
-						<div style={styles.formButtons}>
-							<button style={styles.saveButton} onClick={handleSaveProfile}>
-								Сохранить
-							</button>
-							<button style={styles.cancelEditButton} onClick={handleCancelEdit}>
-								Отмена
-							</button>
-						</div>
-					) : null}
-				</div>
-
-				<div style={styles.bookingsCard}>
-					<div style={styles.sectionHeader}>
-						<h2 style={styles.sectionTitle}>Мои бронирования</h2>
-
-						<div style={styles.filtersRow}>
-							<button
-								style={activeFilter === 'all' ? styles.activeFilterButton : styles.filterButton}
-								onClick={() => setActiveFilter('all')}
-							>
-								Все
-							</button>
-							<button
-								style={activeFilter === 'active' ? styles.activeFilterButton : styles.filterButton}
-								onClick={() => setActiveFilter('active')}
-							>
-								Активные
-							</button>
-							<button
-								style={activeFilter === 'canceled' ? styles.activeFilterButton : styles.filterButton}
-								onClick={() => setActiveFilter('canceled')}
-							>
-								Отмененные
-							</button>
-						</div>
-					</div>
-
-					{bookingsLoading ? (
-						<div style={styles.emptyState}>Загрузка бронирований...</div>
-					) : filteredBookings.length === 0 ? (
-						<div style={styles.emptyState}>
-							<div style={styles.emptyStateIcon}>🏨</div>
-							<div style={styles.emptyStateTitle}>Нет бронирований</div>
-							<div style={styles.emptyStateText}>
-								После оформления заявки она появится в этом разделе.
+						{bookingsLoading ? (
+							<div style={styles.emptyState}>
+								<div style={styles.emptyTitle}>Загрузка бронирований...</div>
 							</div>
-							<button style={styles.emptyStateButton} onClick={() => navigate('/')}>
-								Выбрать номер
-							</button>
-						</div>
-					) : (
-						<div style={styles.bookingList}>
-							{filteredBookings.map((booking) => {
-								const isCanceled = booking.status === 'Отменена';
+						) : filteredBookings.length === 0 ? (
+							<div style={styles.emptyState}>
+								<div style={styles.emptyIcon}>🏨</div>
+								<div style={styles.emptyTitle}>Нет бронирований</div>
+								<div style={styles.emptyText}>
+									После оформления заявки она появится в этом разделе.
+								</div>
+								<button style={styles.primaryButton} onClick={() => navigate('/reservation')}>
+									Выбрать номер
+								</button>
+							</div>
+						) : (
+							<div style={styles.bookingList}>
+								{filteredBookings.map((booking) => {
+									const isCanceled = booking.status === 'Отменена';
 
-								return (
-									<div key={booking.id} style={styles.bookingCard}>
-										<div style={styles.bookingHeader}>
-											<div>
-												<h3 style={styles.bookingTitle}>{booking.roomTitle || booking.type || 'Номер'}</h3>
-												<div style={styles.bookingMeta}>
-													Создано: {booking.createdAt ? formatDateTime(booking.createdAt) : 'Неизвестно'}
+									return (
+										<div
+											key={booking.id}
+											style={{
+												...styles.bookingCard,
+												...(isCanceled ? styles.bookingCardCanceled : {}),
+											}}
+										>
+											<div style={styles.bookingHeader}>
+												<div style={styles.bookingTitleLarge}>
+													{booking.roomName || booking.type || 'Номер не указан'}
+												</div>
+
+												<div style={styles.bookingDate}>
+													Создано: {formatDateTime(booking.createdAt)}
 												</div>
 											</div>
 
-											<div
-												style={{
-													...styles.statusBadge,
-													...(isCanceled ? styles.statusCanceled : styles.statusActive),
-												}}
-											>
-												{booking.status || 'Активна'}
+											<div style={styles.bookingGrid}>
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Заезд</div>
+													<div style={styles.bookingValue}>{booking.start_date}</div>
+													<div style={styles.bookingSubValue}>
+														с {booking.checkInTime || '14:00'}
+													</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Выезд</div>
+													<div style={styles.bookingValue}>{booking.end_date}</div>
+													<div style={styles.bookingSubValue}>
+														до {booking.checkOutTime || '12:00'}
+													</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Количество гостей</div>
+													<div style={styles.bookingValue}>{booking.amount}</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Количество ночей</div>
+													<div style={styles.bookingValue}>{booking.nights || 1}</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Цена за ночь</div>
+													<div style={styles.bookingValue}>
+														{booking.pricePerNight ? `${booking.pricePerNight} ₽` : 'Не указана'}
+													</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Итоговая стоимость</div>
+													<div style={styles.bookingValue}>
+														{booking.totalPrice ? `${booking.totalPrice} ₽` : 'Не указана'}
+													</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Телефон</div>
+													<div style={styles.bookingValue}>{booking.phone_number}</div>
+												</div>
+
+												<div style={styles.bookingField}>
+													<div style={styles.bookingLabel}>Имя в заявке</div>
+													<div style={styles.bookingValue}>
+														{booking.first_name} {booking.last_name}
+													</div>
+												</div>
+
+												<div style={{ ...styles.bookingField, gridColumn: '1 / -1' }}>
+													<div style={styles.bookingLabel}>Комментарий</div>
+													<div style={styles.bookingValue}>
+														{booking.comment || 'Нет комментариев'}
+													</div>
+												</div>
 											</div>
-										</div>
 
-										<div style={styles.bookingGrid}>
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Заезд</div>
-												<div style={styles.bookingValue}>{formatDate(booking.start_date)}</div>
-												<div style={styles.bookingSubValue}>с 14:00</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Выезд</div>
-												<div style={styles.bookingValue}>{formatDate(booking.end_date)}</div>
-												<div style={styles.bookingSubValue}>до 12:00</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Количество гостей</div>
-												<div style={styles.bookingValue}>{booking.amount || 1}</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Количество ночей</div>
-												<div style={styles.bookingValue}>{booking.nights || 1}</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Цена за ночь</div>
-												<div style={styles.bookingValue}>{formatPrice(booking.pricePerNight)}</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Итоговая стоимость</div>
-												<div style={styles.bookingValue}>{formatPrice(booking.totalPrice)}</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Телефон</div>
-												<div style={styles.bookingValue}>{booking.phone || 'Не указан'}</div>
-											</div>
-
-											<div style={styles.bookingField}>
-												<div style={styles.bookingLabel}>Имя в заявке</div>
-												<div style={styles.bookingValue}>{booking.fullName || 'Не указано'}</div>
-											</div>
-
-											<div style={{ ...styles.bookingField, gridColumn: '1 / -1' }}>
-												<div style={styles.bookingLabel}>Комментарий</div>
-												<div style={styles.bookingValue}>{booking.comment || 'Нет комментариев'}</div>
-											</div>
-										</div>
-
-										<div style={styles.bookingActions}>
-											<button
-												style={styles.repeatButton}
-												onClick={() => handleRepeatBooking(booking)}
-											>
-												Повторить бронирование
-											</button>
-
-											{!isCanceled ? (
+											<div style={styles.bookingActions}>
 												<button
-													style={styles.cancelButton}
-													onClick={() => setBookingToCancel(booking)}
+													style={styles.greenButton}
+													onClick={() => handleRepeatBooking(booking)}
 												>
-													Отменить заявку
+													Повторить бронирование
 												</button>
-											) : (
-												<div style={styles.canceledText}>Эта заявка уже отменена</div>
-											)}
-										</div>
-									</div>
-								);
-							})}
-						</div>
-					)}
-				</div>
 
-				<div style={styles.notificationsCard}>
-					<div style={styles.sectionHeader}>
-						<h2 style={styles.sectionTitle}>Уведомления</h2>
-						<div style={styles.notificationCounter}>{notifications.length}</div>
+												{!isCanceled ? (
+													<button
+														style={styles.cancelButton}
+														onClick={() => setBookingToCancel(booking)}
+													>
+														Отменить заявку
+													</button>
+												) : (
+													<div style={styles.canceledText}>Эта заявка уже отменена</div>
+												)}
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						)}
 					</div>
 
-					{notifications.length === 0 ? (
-						<div style={styles.notificationEmpty}>Уведомлений пока нет</div>
-					) : (
-						<div style={styles.notificationList}>
-							{notifications.map((notification) => (
-								<div key={notification.id} style={styles.notificationCard}>
-									<div style={styles.notificationTitle}>
-										{notification.title || 'Уведомление'}
-									</div>
-									<div style={styles.notificationText}>
-										{notification.message || notification.text || ''}
-									</div>
-									<div style={styles.notificationDate}>
-										{notification.created_at
-											? formatDateTime(notification.created_at)
-											: 'Дата неизвестна'}
-									</div>
-								</div>
-							))}
+					<div style={styles.infoCard}>
+						<div style={styles.cardHeader}>
+							<div style={styles.notificationsHeaderLeft}>
+								<h2 style={styles.cardTitle}>Уведомления</h2>
+								<div style={styles.notificationsCount}>{totalNotificationsCount}</div>
+							</div>
 						</div>
-					)}
-				</div>
 
-				<div style={styles.contactsCard}>
-					<h3 style={styles.contactsTitle}>Контакты отеля</h3>
-					<div style={styles.contactsGrid}>
-						<div style={styles.contactItem}>
-							<div style={styles.contactLabel}>Телефон</div>
-							<div style={styles.contactValue}>+79029794016</div>
-						</div>
-						<div style={styles.contactItem}>
-							<div style={styles.contactLabel}>Email</div>
-							<div style={styles.contactValue}>hotel@example.com</div>
-						</div>
-						<div style={styles.contactItem}>
-							<div style={styles.contactLabel}>Время заезда</div>
-							<div style={styles.contactValue}>с 14:00</div>
-						</div>
-						<div style={styles.contactItem}>
-							<div style={styles.contactLabel}>Время выезда</div>
-							<div style={styles.contactValue}>до 12:00</div>
+						{notifications.length === 0 ? (
+							<div style={styles.emptyText}>Уведомлений пока нет</div>
+						) : (
+							<div style={styles.notificationsList}>
+								{notifications.map((item) => (
+									<div
+										key={item.id}
+										style={{
+											...styles.notificationItem,
+											...(item.is_read ? styles.notificationRead : styles.notificationUnread),
+										}}
+									>
+										<div style={styles.notificationContent}>
+											<div style={styles.notificationTitle}>{item.title}</div>
+											<div style={styles.notificationText}>{item.message}</div>
+											<div style={styles.notificationDate}>{formatDateTime(item.created_at)}</div>
+										</div>
+
+										<button
+											style={{
+												...styles.markReadButton,
+												...(item.is_read ? styles.markReadButtonDone : {}),
+											}}
+											onClick={() => {
+												if (!item.is_read) {
+													markNotificationRead(item.id);
+												}
+											}}
+										>
+											Прочитано
+										</button>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
+					<div style={styles.contactsCard}>
+						<h3 style={styles.contactsTitle}>Контакты отеля</h3>
+						<div style={styles.contactsGrid}>
+							<div style={styles.contactItem}>
+								<div style={styles.contactLabel}>Телефон</div>
+								<div style={styles.contactValue}>+79029794016</div>
+							</div>
+
+							<div style={styles.contactItem}>
+								<div style={styles.contactLabel}>Email</div>
+								<div style={styles.contactValue}>hotel@example.com</div>
+							</div>
+
+							<div style={styles.contactItem}>
+								<div style={styles.contactLabel}>Время заезда</div>
+								<div style={styles.contactValue}>с 14:00</div>
+							</div>
+
+							<div style={styles.contactItem}>
+								<div style={styles.contactLabel}>Время выезда</div>
+								<div style={styles.contactValue}>до 12:00</div>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -622,18 +748,17 @@ function ProfilePage() {
 			{bookingToCancel ? (
 				<div style={styles.modalOverlay}>
 					<div style={styles.modalCard}>
-						<div style={styles.modalTitle}>Подтвердите отмену</div>
-						<div style={styles.modalText}>
-							Вы действительно хотите отменить бронирование{' '}
-							<strong>{bookingToCancel.roomTitle || bookingToCancel.type || 'номера'}</strong>?
-						</div>
-
+						<div style={styles.modalBadge}>Подтверждение</div>
+						<h3 style={styles.modalTitle}>Отменить заявку?</h3>
+						<p style={styles.modalText}>
+							Вы действительно хотите отменить это бронирование?
+						</p>
 						<div style={styles.modalButtons}>
-							<button style={styles.confirmCancelButton} onClick={handleCancelBooking}>
-								Да, отменить
+							<button style={styles.cancelEditButton} onClick={() => setBookingToCancel(null)}>
+								Нет
 							</button>
-							<button style={styles.modalCloseButton} onClick={() => setBookingToCancel(null)}>
-								Нет, оставить
+							<button style={styles.cancelButton} onClick={confirmCancelBooking}>
+								Да, отменить
 							</button>
 						</div>
 					</div>
@@ -647,643 +772,723 @@ function extractArrayFromResponse(data) {
 	if (Array.isArray(data)) return data;
 	if (Array.isArray(data?.results)) return data.results;
 	if (Array.isArray(data?.data)) return data.data;
-	if (Array.isArray(data?.bookings)) return data.bookings;
-	if (Array.isArray(data?.notifications)) return data.notifications;
 	return [];
 }
 
 function normalizeBooking(item) {
-	const typeRaw = String(item?.type || '').trim().toLowerCase();
-
-	const roomTitleMap = {
-		standard: 'Standard',
-		luxe: 'Luxe',
-		'luxe plus': 'Luxe Plus',
-		'luxe premium': 'Luxe Premium',
-	};
-
-	const createdAt = item.created_at || item.createdAt || '';
+	const totalPrice = Number(item.totalPrice ?? item.total_price ?? item.price ?? 0);
+	const nights = Number(item.nights ?? 1);
+	const amount = Number(item.amount ?? 1);
 
 	return {
 		id: item.id,
-		type: typeRaw || 'standard',
-		roomTitle: roomTitleMap[typeRaw] || item.roomTitle || item.type || 'Номер',
-		start_date: item.start_date,
-		end_date: item.end_date,
-		amount: Number(item.amount) || 1,
-		nights: Number(item.nights) || countNights(item.start_date, item.end_date),
-		status: item.status || 'Активна',
-		comment: item.comment || '',
+		first_name: item.first_name || '',
+		last_name: item.last_name || '',
+		phone_number: item.phone_number || '',
 		email: item.email || '',
-		phone: item.phone_number || item.phone || '',
-		fullName: [item.first_name, item.last_name].filter(Boolean).join(' ').trim(),
-		pricePerNight: Number(item.price_per_night || inferPriceByType(typeRaw)),
-		totalPrice: Number(item.total_price || item.totalPrice || 0) || inferTotalPrice(item, typeRaw),
-		createdAt,
+		comment: item.comment || '',
+		amount,
+		nights,
+		type: item.roomName || item.type || '',
+		roomName: item.roomName || item.type || '',
+		number: item.number || '',
+		start_date: item.start_date || '',
+		end_date: item.end_date || '',
+		status: item.status || 'Новая заявка',
+		totalPrice,
+		pricePerNight:
+			item.pricePerNight ||
+			(item.price_per_night ?? (nights > 0 ? Math.round(totalPrice / nights) : 0)),
+		promoCode: item.promoCode || item.promo_code || '',
+		promoDiscount: Number(item.promoDiscount ?? item.promo_discount ?? 0),
+		createdAt: item.createdAt || item.created_at || '',
+		checkInTime: item.checkInTime || item.check_in_time || '14:00',
+		checkOutTime: item.checkOutTime || item.check_out_time || '12:00',
 	};
 }
 
-function inferPriceByType(type) {
-	if (type === 'luxe') return 3400;
-	if (type === 'luxe plus') return 3700;
-	if (type === 'luxe premium') return 4200;
-	return 2200;
-}
-
-function inferTotalPrice(item, type) {
-	const nights = Number(item.nights) || countNights(item.start_date, item.end_date);
-	return inferPriceByType(type) * nights;
-}
-
-function countNights(startDate, endDate) {
-	if (!startDate || !endDate) return 1;
-
-	const start = new Date(startDate);
-	const end = new Date(endDate);
-	start.setHours(0, 0, 0, 0);
-	end.setHours(0, 0, 0, 0);
-
-	const diff = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-	return diff > 0 ? diff : 1;
-}
-
-function formatDate(value) {
-	if (!value) return 'Не указана';
-
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return 'Не указана';
-
-	return date.toLocaleDateString('ru-RU');
-}
-
 function formatDateTime(value) {
-	if (!value) return 'Не указана';
-
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return 'Не указана';
-
-	return date.toLocaleString('ru-RU');
+	if (!value) return 'Нет данных';
+	try {
+		return new Date(value).toLocaleString('ru-RU');
+	} catch {
+		return value;
+	}
 }
 
-function formatPrice(value) {
-	return `${Number(value || 0).toLocaleString('ru-RU')} ₽`;
+function buildStyles({ isTablet, isMobile, isSmallMobile }) {
+	return {
+		page: {
+			minHeight: '100vh',
+			position: 'relative',
+			background: '#221815',
+			padding: isMobile ? '20px 12px 36px' : isTablet ? '26px 16px 40px' : '32px 20px 48px',
+			fontFamily: "'Noto Sans', sans-serif",
+		},
+		container: {
+			position: 'relative',
+			zIndex: 1,
+			maxWidth: '1180px',
+			margin: '0 auto',
+		},
+		heroCard: {
+			background: '#2b1f1b',
+			border: '1px solid rgba(255,255,255,0.05)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : isTablet ? '18px' : '24px',
+			boxShadow: '0 4px 14px rgba(0,0,0,0.14)',
+			color: '#f3ece7',
+		},
+		topGrid: {
+			display: 'grid',
+			gridTemplateColumns: isTablet ? '1fr' : '1.6fr 1fr',
+			gap: isMobile ? '12px' : '16px',
+			marginBottom: isMobile ? '14px' : '18px',
+		},
+		profileHeroLeft: {
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : '20px',
+		},
+		profileIdentity: {
+			display: 'flex',
+			flexDirection: isSmallMobile ? 'column' : 'row',
+			alignItems: isSmallMobile ? 'flex-start' : 'center',
+			gap: isMobile ? '12px' : '16px',
+		},
+		profileTextWrap: {
+			display: 'flex',
+			flexDirection: 'column',
+		},
+		avatar: {
+			width: isMobile ? '52px' : '60px',
+			height: isMobile ? '52px' : '60px',
+			borderRadius: '50%',
+			background: '#b48a70',
+			display: 'flex',
+			alignItems: 'center',
+			justifyContent: 'center',
+			fontSize: isMobile ? '20px' : '24px',
+			fontWeight: 600,
+			color: '#fff7ef',
+			flexShrink: 0,
+		},
+		profileHeading: {
+			color: '#ffffff',
+			fontFamily: "'Cormorant'",
+			fontSize: isSmallMobile ? '1.9rem' : isMobile ? '2.05rem' : '2.25rem',
+			fontWeight: 600,
+			lineHeight: '1.05',
+			marginBottom: '6px',
+		},
+		heroTitle: {
+			margin: 0,
+			fontSize: isMobile ? '18px' : '21px',
+			lineHeight: 1.2,
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#fff7ef',
+			letterSpacing: '-0.01em',
+		},
+		heroText: {
+			marginTop: '10px',
+			marginBottom: 0,
+			fontSize: isMobile ? '14px' : '15px',
+			lineHeight: 1.55,
+			color: 'rgba(243, 236, 231, 0.72)',
+			maxWidth: '680px',
+		},
+		quickActionsCard: {
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : '20px',
+			display: 'flex',
+			flexDirection: 'column',
+			justifyContent: 'space-between',
+		},
+		quickActionsTitle: {
+			fontSize: isMobile ? '15px' : '16px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#f3ece7',
+			marginBottom: '14px',
+			letterSpacing: '-0.01em',
+		},
+		quickActionsButtons: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: isMobile ? '8px' : '10px',
+		},
+		statsGrid: {
+			display: 'grid',
+			gridTemplateColumns: isSmallMobile
+				? '1fr 1fr'
+				: isTablet
+				? 'repeat(2, minmax(0, 1fr))'
+				: 'repeat(4, minmax(0, 1fr))',
+			gap: isMobile ? '10px' : '12px',
+			marginBottom: isMobile ? '16px' : '20px',
+		},
+		statCard: {
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px 12px' : '16px',
+			minWidth: 0,
+		},
+		statLabel: {
+			fontSize: isMobile ? '11px' : '12px',
+			color: 'rgba(243, 236, 231, 0.56)',
+			marginBottom: '8px',
+			lineHeight: 1.35,
+			wordBreak: 'break-word',
+		},
+		statValue: {
+			fontSize: isMobile ? '22px' : '24px',
+			fontWeight: 500,
+			color: '#fff9f2',
+			letterSpacing: '-0.02em',
+			wordBreak: 'break-word',
+		},
+		infoCard: {
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : '20px',
+			marginBottom: isMobile ? '16px' : '20px',
+		},
+		cardHeader: {
+			display: 'flex',
+			flexDirection: isSmallMobile ? 'column' : 'row',
+			justifyContent: 'space-between',
+			alignItems: isSmallMobile ? 'flex-start' : 'center',
+			gap: '12px',
+			marginBottom: '16px',
+		},
+		notificationsHeaderLeft: {
+			display: 'flex',
+			alignItems: 'center',
+			gap: '10px',
+			flexWrap: 'wrap',
+		},
+		notificationsCount: {
+			minWidth: '28px',
+			height: '28px',
+			padding: '0 8px',
+			borderRadius: '999px',
+			background: '#3a2a25',
+			border: '1px solid rgba(255,255,255,0.05)',
+			color: '#d7c0aa',
+			fontSize: '12px',
+			fontWeight: 500,
+			display: 'flex',
+			alignItems: 'center',
+			justifyContent: 'center',
+		},
+		cardTitle: {
+			margin: 0,
+			fontSize: isMobile ? '17px' : '18px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#f3ece7',
+		},
+		editButton: {
+			height: isMobile ? '36px' : '38px',
+			padding: '0 14px',
+			border: '1px solid rgba(255,255,255,0.08)',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#3a2a25',
+			color: '#f3ece7',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '13px' : '14px',
+			width: isSmallMobile ? '100%' : 'auto',
+		},
+		messageBox: {
+			padding: '12px 14px',
+			borderRadius: isMobile ? '8px' : '6px',
+			marginBottom: '16px',
+			fontSize: '14px',
+			fontWeight: 500,
+		},
+		successMessage: {
+			background: 'rgba(90, 160, 110, 0.14)',
+			border: '1px solid rgba(120, 210, 150, 0.16)',
+			color: '#cdeed7',
+		},
+		errorMessage: {
+			background: 'rgba(179, 38, 30, 0.14)',
+			border: '1px solid rgba(255, 120, 120, 0.14)',
+			color: '#ffd8d8',
+		},
+		formBlock: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: '14px',
+		},
+		inputGroup: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: '8px',
+		},
+		inputLabel: {
+			fontSize: '14px',
+			fontWeight: 500,
+			color: 'rgba(243, 236, 231, 0.74)',
+		},
+		input: {
+			height: isMobile ? '42px' : '44px',
+			padding: '0 12px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: '1px solid rgba(255,255,255,0.07)',
+			background: '#2a1e1a',
+			color: '#fff',
+			fontSize: isMobile ? '14px' : '15px',
+			outline: 'none',
+		},
+		editButtons: {
+			display: 'flex',
+			flexDirection: isSmallMobile ? 'column' : 'row',
+			gap: '10px',
+			marginTop: '6px',
+			flexWrap: 'wrap',
+		},
+		saveButton: {
+			height: '42px',
+			padding: '0 16px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: 'none',
+			background: '#8f5d47',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: '14px',
+			width: isSmallMobile ? '100%' : 'auto',
+		},
+		cancelEditButton: {
+			height: '42px',
+			padding: '0 16px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: '1px solid rgba(255,255,255,0.08)',
+			background: '#342621',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: '14px',
+			width: isSmallMobile ? '100%' : 'auto',
+		},
+		profileGrid: {
+			display: 'grid',
+			gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+			gap: isMobile ? '10px' : '12px',
+		},
+		infoRowCard: {
+			padding: isMobile ? '13px 14px' : '15px 16px',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#2a1e1a',
+			border: '1px solid rgba(255,255,255,0.04)',
+			minWidth: 0,
+		},
+		infoLabel: {
+			fontSize: '12px',
+			color: 'rgba(243, 236, 231, 0.56)',
+			marginBottom: '8px',
+		},
+		infoValue: {
+			color: '#ffffff',
+			fontSize: isMobile ? '14px' : '15px',
+			fontWeight: 500,
+			wordBreak: 'break-word',
+		},
+		section: {
+			marginTop: '8px',
+			marginBottom: isMobile ? '16px' : '20px',
+		},
+		sectionTop: {
+			display: 'flex',
+			flexDirection: isMobile ? 'column' : 'row',
+			justifyContent: 'space-between',
+			alignItems: isMobile ? 'stretch' : 'center',
+			gap: '12px',
+			marginBottom: '16px',
+			flexWrap: 'wrap',
+		},
+		sectionTitle: {
+			marginTop: 0,
+			marginBottom: 0,
+			fontSize: isMobile ? '17px' : '18px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#f3ece7',
+		},
+		filterWrap: {
+			display: 'flex',
+			gap: '8px',
+			flexWrap: 'wrap',
+			width: isMobile ? '100%' : 'auto',
+		},
+		filterButton: {
+			height: isMobile ? '34px' : '36px',
+			padding: '0 14px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: '1px solid rgba(255,255,255,0.07)',
+			background: '#342621',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '12px' : '13px',
+			flex: isSmallMobile ? '1 1 calc(33.333% - 6px)' : '0 0 auto',
+		},
+		filterButtonActive: {
+			background: '#b68463',
+			border: '1px solid #b68463',
+			color: '#fff',
+		},
+		emptyState: {
+			padding: isMobile ? '24px 14px' : '28px 20px',
+			borderRadius: isMobile ? '10px' : '6px',
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			textAlign: 'center',
+			display: 'flex',
+			flexDirection: 'column',
+			alignItems: 'center',
+			gap: '12px',
+		},
+		emptyIcon: {
+			fontSize: '34px',
+		},
+		emptyTitle: {
+			fontSize: isMobile ? '17px' : '18px',
+			fontWeight: 500,
+			color: '#fff5e8',
+			fontFamily: "'Noto Sans', sans-serif",
+		},
+		emptyText: {
+			color: 'rgba(243, 236, 231, 0.7)',
+			fontSize: isMobile ? '13px' : '14px',
+			maxWidth: '460px',
+			lineHeight: 1.5,
+		},
+		bookingList: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: isMobile ? '10px' : '12px',
+		},
+		bookingCard: {
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : '18px',
+		},
+		bookingCardCanceled: {
+			opacity: 0.84,
+			border: '1px solid rgba(255, 120, 120, 0.1)',
+		},
+		bookingHeader: {
+			marginBottom: '14px',
+			paddingBottom: '12px',
+			borderBottom: '1px solid rgba(255,255,255,0.05)',
+		},
+		bookingTitleLarge: {
+			fontSize: isSmallMobile ? '19px' : isMobile ? '20px' : '22px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#fff6ea',
+			textTransform: 'capitalize',
+			lineHeight: 1.2,
+			wordBreak: 'break-word',
+		},
+		bookingDate: {
+			marginTop: '6px',
+			fontSize: '12px',
+			color: 'rgba(243, 236, 231, 0.56)',
+			lineHeight: 1.4,
+		},
+		bookingGrid: {
+			display: 'grid',
+			gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+			gap: isMobile ? '10px' : '12px',
+		},
+		bookingField: {
+			padding: isMobile ? '12px 13px' : '12px 14px',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#2a1e1a',
+			border: '1px solid rgba(255,255,255,0.04)',
+			minWidth: 0,
+		},
+		bookingLabel: {
+			fontSize: '12px',
+			color: 'rgba(243, 236, 231, 0.56)',
+			marginBottom: '8px',
+		},
+		bookingValue: {
+			fontSize: isMobile ? '14px' : '15px',
+			fontWeight: 500,
+			color: '#fffdf9',
+			wordBreak: 'break-word',
+			lineHeight: 1.45,
+		},
+		bookingSubValue: {
+			fontSize: '12px',
+			color: 'rgba(243, 236, 231, 0.54)',
+			marginTop: '6px',
+		},
+		bookingActions: {
+			marginTop: '14px',
+			display: 'flex',
+			flexDirection: isMobile ? 'column' : 'row',
+			justifyContent: 'space-between',
+			gap: '10px',
+			flexWrap: 'wrap',
+		},
+		buttons: {
+			display: 'flex',
+			gap: '12px',
+			marginTop: '24px',
+			flexWrap: 'wrap',
+		},
+		primaryButton: {
+			height: isMobile ? '40px' : '42px',
+			padding: '0 18px',
+			border: 'none',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#b68463',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '13px' : '14px',
+			boxShadow: 'none',
+			width: isMobile ? '100%' : 'auto',
+		},
+		greenButton: {
+			height: isMobile ? '40px' : '42px',
+			padding: '0 18px',
+			border: '1px solid rgba(88, 150, 99, 0.16)',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#3e7c4a',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '13px' : '14px',
+			boxShadow: 'none',
+			width: isMobile ? '100%' : 'auto',
+		},
+		secondaryButton: {
+			height: isMobile ? '40px' : '42px',
+			padding: '0 18px',
+			border: '1px solid rgba(255,255,255,0.08)',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#342621',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '13px' : '14px',
+			width: isMobile ? '100%' : 'auto',
+		},
+		logoutButton: {
+			height: isMobile ? '40px' : '42px',
+			padding: '0 18px',
+			border: '1px solid rgba(255,255,255,0.06)',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#c0392b',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: isMobile ? '13px' : '14px',
+			width: isMobile ? '100%' : 'auto',
+		},
+		cancelButton: {
+			height: '42px',
+			padding: '0 16px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: '1px solid rgba(255, 120, 120, 0.12)',
+			background: '#c0392b',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: '14px',
+			boxShadow: 'none',
+			width: isMobile ? '100%' : 'auto',
+		},
+		canceledText: {
+			color: 'rgba(255, 220, 220, 0.82)',
+			fontSize: '14px',
+			fontWeight: 500,
+			display: 'flex',
+			alignItems: 'center',
+		},
+		notificationsList: {
+			display: 'flex',
+			flexDirection: 'column',
+			gap: '8px',
+			maxHeight: isMobile ? '300px' : '340px',
+			overflowY: 'auto',
+			paddingRight: '4px',
+		},
+		notificationItem: {
+			padding: isMobile ? '10px' : '10px 12px',
+			borderRadius: isMobile ? '8px' : '6px',
+			display: 'flex',
+			flexDirection: isSmallMobile ? 'column' : 'row',
+			justifyContent: 'space-between',
+			gap: '12px',
+			alignItems: isSmallMobile ? 'stretch' : 'center',
+			minHeight: isMobile ? 'unset' : '74px',
+		},
+		notificationContent: {
+			flex: 1,
+			minWidth: 0,
+		},
+		notificationUnread: {
+			background: '#352722',
+			border: '1px solid rgba(217, 193, 168, 0.14)',
+		},
+		notificationRead: {
+			background: '#2a1e1a',
+			border: '1px solid rgba(255,255,255,0.04)',
+		},
+		notificationTitle: {
+			fontSize: isMobile ? '13px' : '14px',
+			fontWeight: 500,
+			color: '#fff4e6',
+			marginBottom: '4px',
+			fontFamily: "'Noto Sans', sans-serif",
+			lineHeight: 1.3,
+		},
+		notificationText: {
+			fontSize: isMobile ? '12px' : '13px',
+			color: 'rgba(243,236,231,0.72)',
+			lineHeight: 1.4,
+			marginBottom: '6px',
+			display: '-webkit-box',
+			WebkitLineClamp: isMobile ? 3 : 2,
+			WebkitBoxOrient: 'vertical',
+			overflow: 'hidden',
+		},
+		notificationDate: {
+			fontSize: '11px',
+			color: 'rgba(243,236,231,0.5)',
+		},
+		markReadButton: {
+			height: isSmallMobile ? '36px' : '34px',
+			padding: '0 12px',
+			borderRadius: isMobile ? '8px' : '6px',
+			border: '1px solid rgba(255,255,255,0.08)',
+			background: '#6f4c3e',
+			color: '#fff',
+			cursor: 'pointer',
+			fontWeight: 500,
+			fontSize: '12px',
+			whiteSpace: 'nowrap',
+			flexShrink: 0,
+			width: isSmallMobile ? '100%' : 'auto',
+		},
+		markReadButtonDone: {
+			background: '#4e3a31',
+			color: 'rgba(255,255,255,0.78)',
+			cursor: 'default',
+		},
+		contactsCard: {
+			marginTop: isMobile ? '16px' : '20px',
+			background: '#312420',
+			border: '1px solid rgba(255,255,255,0.04)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '14px' : '20px',
+		},
+		contactsTitle: {
+			marginTop: 0,
+			marginBottom: '14px',
+			fontSize: isMobile ? '17px' : '18px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#f3ece7',
+		},
+		contactsGrid: {
+			display: 'grid',
+			gridTemplateColumns: isMobile
+				? '1fr'
+				: isTablet
+				? 'repeat(2, minmax(0, 1fr))'
+				: 'repeat(4, minmax(0, 1fr))',
+			gap: isMobile ? '10px' : '12px',
+		},
+		contactItem: {
+			padding: isMobile ? '13px' : '14px',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#2a1e1a',
+			border: '1px solid rgba(255,255,255,0.04)',
+			minWidth: 0,
+		},
+		contactLabel: {
+			fontSize: '12px',
+			color: 'rgba(243, 236, 231, 0.56)',
+			marginBottom: '8px',
+		},
+		contactValue: {
+			fontSize: isMobile ? '14px' : '15px',
+			fontWeight: 500,
+			color: '#fffdf9',
+			wordBreak: 'break-word',
+			lineHeight: 1.45,
+		},
+		modalOverlay: {
+			position: 'fixed',
+			inset: 0,
+			background: 'rgba(0,0,0,0.55)',
+			display: 'flex',
+			alignItems: 'center',
+			justifyContent: 'center',
+			padding: isMobile ? '14px' : '20px',
+			zIndex: 9999,
+		},
+		modalCard: {
+			width: '100%',
+			maxWidth: '420px',
+			background: '#2b1f1b',
+			border: '1px solid rgba(255,255,255,0.08)',
+			borderRadius: isMobile ? '10px' : '6px',
+			padding: isMobile ? '18px 16px' : '22px',
+			boxShadow: '0 8px 24px rgba(0,0,0,0.22)',
+			color: '#fff',
+		},
+		modalBadge: {
+			display: 'inline-flex',
+			alignItems: 'center',
+			height: '32px',
+			padding: '0 10px',
+			borderRadius: isMobile ? '8px' : '6px',
+			background: '#352722',
+			border: '1px solid rgba(255,255,255,0.05)',
+			color: '#d7c0aa',
+			fontSize: '12px',
+			fontWeight: 500,
+			marginBottom: '14px',
+		},
+		modalTitle: {
+			marginTop: 0,
+			marginBottom: '10px',
+			fontSize: isMobile ? '18px' : '20px',
+			fontWeight: 500,
+			fontFamily: "'Noto Sans', sans-serif",
+			color: '#fff6ea',
+		},
+		modalText: {
+			marginTop: 0,
+			marginBottom: '18px',
+			color: 'rgba(243,236,231,0.78)',
+			lineHeight: 1.55,
+			fontSize: isMobile ? '14px' : '15px',
+		},
+		modalButtons: {
+			display: 'flex',
+			flexDirection: isSmallMobile ? 'column' : 'row',
+			gap: '10px',
+			flexWrap: 'wrap',
+		},
+	};
 }
-
-const styles = {
-	page: {
-		minHeight: '100vh',
-		background:
-			'linear-gradient(180deg, rgba(25, 18, 15, 0.96) 0%, rgba(34, 22, 18, 0.98) 100%)',
-		color: '#f5ede7',
-		padding: '32px 16px 48px',
-	},
-	container: {
-		maxWidth: '1120px',
-		margin: '0 auto',
-		display: 'grid',
-		gap: '20px',
-	},
-	headerCard: {
-		display: 'grid',
-		gridTemplateColumns: '2fr 1.2fr',
-		gap: '20px',
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.14)',
-		borderRadius: '24px',
-		padding: '24px',
-		boxShadow: '0 18px 40px rgba(0, 0, 0, 0.22)',
-	},
-	userInfoBlock: {
-		display: 'flex',
-		alignItems: 'flex-start',
-		gap: '18px',
-	},
-	avatar: {
-		width: '62px',
-		height: '62px',
-		borderRadius: '50%',
-		background: '#cfa17d',
-		color: '#fff',
-		fontSize: '32px',
-		fontWeight: 700,
-		display: 'flex',
-		alignItems: 'center',
-		justifyContent: 'center',
-		flexShrink: 0,
-	},
-	headerTextBlock: {
-		display: 'grid',
-		gap: '10px',
-	},
-	pageTitle: {
-		fontSize: '48px',
-		lineHeight: 1.05,
-		margin: 0,
-		color: '#fff3ea',
-		fontFamily: 'Cormorant Garamond, serif',
-		fontWeight: 700,
-	},
-	pageSubtitle: {
-		fontSize: '18px',
-		lineHeight: 1.45,
-		color: 'rgba(255, 243, 234, 0.85)',
-		maxWidth: '560px',
-	},
-	quickActionsCard: {
-		borderRadius: '20px',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		background: 'rgba(84, 51, 40, 0.28)',
-		padding: '18px',
-		display: 'grid',
-		gap: '14px',
-		alignContent: 'start',
-	},
-	quickActionsTitle: {
-		fontSize: '28px',
-		fontWeight: 700,
-		fontFamily: 'Cormorant Garamond, serif',
-		color: '#fff0e3',
-	},
-	quickActionsButtons: {
-		display: 'grid',
-		gap: '10px',
-	},
-	primaryButton: {
-		border: 'none',
-		borderRadius: '14px',
-		padding: '14px 18px',
-		fontSize: '17px',
-		fontWeight: 700,
-		cursor: 'pointer',
-		background: '#cfa17d',
-		color: '#2b1a13',
-		transition: '0.2s ease',
-	},
-	secondaryButton: {
-		border: '1px solid rgba(201, 161, 122, 0.2)',
-		borderRadius: '14px',
-		padding: '14px 18px',
-		fontSize: '17px',
-		fontWeight: 700,
-		cursor: 'pointer',
-		background: 'transparent',
-		color: '#fff0e3',
-	},
-	logoutButton: {
-		border: 'none',
-		borderRadius: '14px',
-		padding: '14px 18px',
-		fontSize: '17px',
-		fontWeight: 700,
-		cursor: 'pointer',
-		background: '#cf4a38',
-		color: '#fff',
-	},
-	statsGrid: {
-		display: 'grid',
-		gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-		gap: '14px',
-	},
-	statCard: {
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		borderRadius: '18px',
-		padding: '20px',
-		display: 'grid',
-		gap: '10px',
-	},
-	statLabel: {
-		color: 'rgba(255, 243, 234, 0.75)',
-		fontSize: '15px',
-	},
-	statValue: {
-		fontSize: '44px',
-		fontWeight: 700,
-		lineHeight: 1,
-		color: '#fff4ea',
-	},
-	messageBox: {
-		borderRadius: '16px',
-		padding: '14px 18px',
-		fontSize: '16px',
-		fontWeight: 600,
-	},
-	successMessage: {
-		background: 'rgba(51, 129, 81, 0.18)',
-		border: '1px solid rgba(84, 197, 120, 0.32)',
-		color: '#d7ffe4',
-	},
-	errorMessage: {
-		background: 'rgba(201, 74, 74, 0.16)',
-		border: '1px solid rgba(255, 116, 116, 0.28)',
-		color: '#ffd9d9',
-	},
-	profileCard: {
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		borderRadius: '24px',
-		padding: '22px',
-		display: 'grid',
-		gap: '18px',
-	},
-	sectionHeader: {
-		display: 'flex',
-		alignItems: 'center',
-		justifyContent: 'space-between',
-		gap: '14px',
-		flexWrap: 'wrap',
-	},
-	sectionTitle: {
-		margin: 0,
-		fontSize: '24px',
-		fontWeight: 700,
-		color: '#fff0e3',
-	},
-	editButton: {
-		border: '1px solid rgba(201, 161, 122, 0.2)',
-		borderRadius: '12px',
-		background: 'transparent',
-		color: '#fff0e3',
-		padding: '10px 16px',
-		fontSize: '15px',
-		fontWeight: 600,
-		cursor: 'pointer',
-	},
-	profileGrid: {
-		display: 'grid',
-		gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-		gap: '14px',
-	},
-	fieldCard: {
-		background: 'rgba(43, 27, 22, 0.72)',
-		borderRadius: '16px',
-		padding: '14px 16px',
-		display: 'grid',
-		gap: '10px',
-		border: '1px solid rgba(201, 161, 122, 0.08)',
-	},
-	fieldLabel: {
-		fontSize: '14px',
-		color: 'rgba(255, 243, 234, 0.68)',
-	},
-	fieldValue: {
-		fontSize: '18px',
-		fontWeight: 600,
-		color: '#fff7f0',
-		wordBreak: 'break-word',
-	},
-	input: {
-		width: '100%',
-		borderRadius: '12px',
-		border: '1px solid rgba(201, 161, 122, 0.2)',
-		background: '#2c1b15',
-		color: '#fff4ea',
-		padding: '13px 14px',
-		fontSize: '16px',
-		outline: 'none',
-	},
-	formButtons: {
-		display: 'flex',
-		gap: '12px',
-		flexWrap: 'wrap',
-	},
-	saveButton: {
-		border: 'none',
-		borderRadius: '12px',
-		background: '#338151',
-		color: '#fff',
-		padding: '12px 20px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	cancelEditButton: {
-		border: '1px solid rgba(201, 161, 122, 0.18)',
-		borderRadius: '12px',
-		background: 'transparent',
-		color: '#fff0e3',
-		padding: '12px 20px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	bookingsCard: {
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		borderRadius: '24px',
-		padding: '22px',
-		display: 'grid',
-		gap: '18px',
-	},
-	filtersRow: {
-		display: 'flex',
-		gap: '10px',
-		flexWrap: 'wrap',
-	},
-	filterButton: {
-		border: '1px solid rgba(201, 161, 122, 0.2)',
-		borderRadius: '12px',
-		background: 'transparent',
-		color: '#fff0e3',
-		padding: '10px 16px',
-		fontSize: '15px',
-		fontWeight: 600,
-		cursor: 'pointer',
-	},
-	activeFilterButton: {
-		border: 'none',
-		borderRadius: '12px',
-		background: '#cfa17d',
-		color: '#2b1a13',
-		padding: '10px 16px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	emptyState: {
-		borderRadius: '20px',
-		padding: '30px 18px',
-		border: '1px dashed rgba(201, 161, 122, 0.2)',
-		background: 'rgba(44, 27, 21, 0.5)',
-		textAlign: 'center',
-		display: 'grid',
-		gap: '10px',
-		justifyItems: 'center',
-	},
-	emptyStateIcon: {
-		fontSize: '36px',
-	},
-	emptyStateTitle: {
-		fontSize: '32px',
-		fontWeight: 700,
-		fontFamily: 'Cormorant Garamond, serif',
-		color: '#fff1e5',
-	},
-	emptyStateText: {
-		fontSize: '16px',
-		color: 'rgba(255, 243, 234, 0.78)',
-		maxWidth: '480px',
-		lineHeight: 1.5,
-	},
-	emptyStateButton: {
-		border: 'none',
-		borderRadius: '14px',
-		background: '#cfa17d',
-		color: '#2b1a13',
-		padding: '12px 20px',
-		fontSize: '16px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	bookingList: {
-		display: 'grid',
-		gap: '18px',
-	},
-	bookingCard: {
-		borderRadius: '20px',
-		background: 'rgba(44, 27, 21, 0.72)',
-		border: '1px solid rgba(201, 161, 122, 0.1)',
-		padding: '18px',
-		display: 'grid',
-		gap: '16px',
-	},
-	bookingHeader: {
-		display: 'flex',
-		alignItems: 'flex-start',
-		justifyContent: 'space-between',
-		gap: '14px',
-		flexWrap: 'wrap',
-	},
-	bookingTitle: {
-		margin: 0,
-		fontSize: '24px',
-		fontWeight: 700,
-		color: '#fff4ea',
-	},
-	bookingMeta: {
-		fontSize: '14px',
-		color: 'rgba(255, 243, 234, 0.72)',
-		marginTop: '6px',
-	},
-	statusBadge: {
-		padding: '8px 12px',
-		borderRadius: '999px',
-		fontSize: '13px',
-		fontWeight: 700,
-	},
-	statusActive: {
-		background: 'rgba(51, 129, 81, 0.18)',
-		color: '#d7ffe4',
-		border: '1px solid rgba(84, 197, 120, 0.2)',
-	},
-	statusCanceled: {
-		background: 'rgba(201, 74, 74, 0.18)',
-		color: '#ffd9d9',
-		border: '1px solid rgba(255, 116, 116, 0.2)',
-	},
-	bookingGrid: {
-		display: 'grid',
-		gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-		gap: '14px',
-	},
-	bookingField: {
-		borderRadius: '16px',
-		background: 'rgba(54, 33, 27, 0.82)',
-		border: '1px solid rgba(201, 161, 122, 0.08)',
-		padding: '14px',
-		display: 'grid',
-		gap: '8px',
-	},
-	bookingLabel: {
-		fontSize: '14px',
-		color: 'rgba(255, 243, 234, 0.68)',
-	},
-	bookingValue: {
-		fontSize: '18px',
-		fontWeight: 700,
-		color: '#fff7f0',
-		wordBreak: 'break-word',
-	},
-	bookingSubValue: {
-		fontSize: '14px',
-		color: 'rgba(255, 243, 234, 0.72)',
-	},
-	bookingActions: {
-		display: 'flex',
-		justifyContent: 'space-between',
-		gap: '12px',
-		flexWrap: 'wrap',
-	},
-	repeatButton: {
-		border: 'none',
-		borderRadius: '12px',
-		background: '#4b9d58',
-		color: '#fff',
-		padding: '12px 18px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	cancelButton: {
-		border: 'none',
-		borderRadius: '12px',
-		background: '#cf4a38',
-		color: '#fff',
-		padding: '12px 18px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	canceledText: {
-		fontSize: '15px',
-		fontWeight: 600,
-		color: '#ffd7d7',
-	},
-	notificationsCard: {
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		borderRadius: '24px',
-		padding: '22px',
-		display: 'grid',
-		gap: '16px',
-	},
-	notificationCounter: {
-		minWidth: '28px',
-		height: '28px',
-		borderRadius: '999px',
-		background: 'rgba(201, 161, 122, 0.16)',
-		color: '#fff1e5',
-		display: 'flex',
-		alignItems: 'center',
-		justifyContent: 'center',
-		fontSize: '14px',
-		fontWeight: 700,
-	},
-	notificationEmpty: {
-		fontSize: '15px',
-		color: 'rgba(255, 243, 234, 0.72)',
-	},
-	notificationList: {
-		display: 'grid',
-		gap: '12px',
-	},
-	notificationCard: {
-		borderRadius: '16px',
-		background: 'rgba(44, 27, 21, 0.72)',
-		border: '1px solid rgba(201, 161, 122, 0.08)',
-		padding: '14px',
-		display: 'grid',
-		gap: '8px',
-	},
-	notificationTitle: {
-		fontSize: '16px',
-		fontWeight: 700,
-		color: '#fff6ef',
-	},
-	notificationText: {
-		fontSize: '15px',
-		lineHeight: 1.45,
-		color: 'rgba(255, 243, 234, 0.82)',
-	},
-	notificationDate: {
-		fontSize: '13px',
-		color: 'rgba(255, 243, 234, 0.6)',
-	},
-	contactsCard: {
-		background: 'rgba(62, 38, 31, 0.88)',
-		border: '1px solid rgba(201, 161, 122, 0.12)',
-		borderRadius: '24px',
-		padding: '22px',
-		display: 'grid',
-		gap: '18px',
-	},
-	contactsTitle: {
-		margin: 0,
-		fontSize: '24px',
-		fontWeight: 700,
-		color: '#fff0e3',
-	},
-	contactsGrid: {
-		display: 'grid',
-		gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-		gap: '14px',
-	},
-	contactItem: {
-		borderRadius: '16px',
-		background: 'rgba(44, 27, 21, 0.72)',
-		border: '1px solid rgba(201, 161, 122, 0.08)',
-		padding: '14px',
-		display: 'grid',
-		gap: '8px',
-	},
-	contactLabel: {
-		fontSize: '14px',
-		color: 'rgba(255, 243, 234, 0.68)',
-	},
-	contactValue: {
-		fontSize: '18px',
-		fontWeight: 700,
-		color: '#fff7f0',
-		wordBreak: 'break-word',
-	},
-	modalOverlay: {
-		position: 'fixed',
-		inset: 0,
-		background: 'rgba(0, 0, 0, 0.55)',
-		display: 'flex',
-		alignItems: 'center',
-		justifyContent: 'center',
-		padding: '18px',
-		zIndex: 999,
-	},
-	modalCard: {
-		width: '100%',
-		maxWidth: '460px',
-		background: '#241611',
-		borderRadius: '22px',
-		border: '1px solid rgba(201, 161, 122, 0.14)',
-		padding: '22px',
-		display: 'grid',
-		gap: '18px',
-		boxShadow: '0 18px 40px rgba(0, 0, 0, 0.22)',
-	},
-	modalTitle: {
-		fontSize: '28px',
-		fontWeight: 700,
-		fontFamily: 'Cormorant Garamond, serif',
-		color: '#fff1e5',
-		margin: 0,
-	},
-	modalText: {
-		fontSize: '16px',
-		lineHeight: 1.55,
-		color: 'rgba(255, 243, 234, 0.82)',
-	},
-	modalButtons: {
-		display: 'flex',
-		gap: '12px',
-		flexWrap: 'wrap',
-	},
-	confirmCancelButton: {
-		border: 'none',
-		borderRadius: '12px',
-		background: '#cf4a38',
-		color: '#fff',
-		padding: '12px 18px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-	modalCloseButton: {
-		border: '1px solid rgba(201, 161, 122, 0.18)',
-		borderRadius: '12px',
-		background: 'transparent',
-		color: '#fff0e3',
-		padding: '12px 18px',
-		fontSize: '15px',
-		fontWeight: 700,
-		cursor: 'pointer',
-	},
-};
 
 export default ProfilePage;
