@@ -38,14 +38,11 @@ function DefaultPage() {
 	return (
 		<div>
 			<Header main={true} />
-
 			<PreviewBlock
 				filters={filters}
 				setFilters={setFilters}
-				personsCount={personsCount}
 				setPersonsCount={setPersonsCount}
 			/>
-
 			<About />
 			<Promotions />
 			<Preferences />

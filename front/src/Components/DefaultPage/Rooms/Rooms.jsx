@@ -78,7 +78,9 @@ function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null
 
 	let visibleRooms = [...rooms];
 
-	if (data !== null) {
+	if (typeof personsCount === 'number' && personsCount > 4) {
+		visibleRooms = [];
+	} else if (typeof personsCount === 'number' && personsCount > 0) {
 		visibleRooms = visibleRooms.filter((room) => room.maxPerson >= personsCount);
 	}
 
