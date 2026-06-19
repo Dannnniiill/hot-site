@@ -68,7 +68,7 @@ const rooms = [
 	},
 ];
 
-function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = null, persons = { count: 1 } }) {
+function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null, persons = { count: 1 } }) {
 	const safeFilters = filters || {
 		type: 'all',
 		price: 'all',
@@ -76,28 +76,10 @@ function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = n
 		amenities: [],
 	};
 
-	const getResolvedPersonsCount = () => {
-		if (typeof personsCount === 'number' && !Number.isNaN(personsCount)) {
-			return personsCount;
-		}
-
-		if (typeof persons?.count === 'number' && !Number.isNaN(persons.count)) {
-			return persons.count;
-		}
-
-		const adults = Number(persons?.adults || 0);
-		const child = Number(persons?.child || 0);
-		const total = adults + child;
-
-		return total > 0 ? total : 1;
-	};
-
-	const requestedPersonsCount = getResolvedPersonsCount();
-
 	let visibleRooms = [...rooms];
 
 	if (data !== null) {
-		visibleRooms = visibleRooms.filter((room) => room.maxPerson >= requestedPersonsCount);
+		visibleRooms = visibleRooms.filter((room) => room.maxPerson >= personsCount);
 	}
 
 	if (safeFilters.type !== 'all') {
@@ -136,13 +118,6 @@ function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = n
 		visibleRooms.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	const sharedBookingState = {
-		toDate,
-		fromDate,
-		persons,
-		filters: safeFilters,
-	};
-
 	return (
 		<section id="rooms" className={!data ? styles.rooms : styles.rooms__book}>
 			{!data && (
@@ -163,18 +138,7 @@ function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = n
 			) : !data ? (
 				<div className={styles.rooms__grid}>
 					{visibleRooms.map((el) => (
-						<RoomItem
-							key={el.id}
-							{...el}
-							isBook={false}
-							availableCount={null}
-							bookingState={{
-								...sharedBookingState,
-								searchMode: 'direct-room',
-								roomType: el.type,
-								roomId: el.id,
-							}}
-						/>
+						<RoomItem key={el.id} {...el} isBook={false} availableCount={null} />
 					))}
 				</div>
 			) : (
@@ -186,10 +150,11 @@ function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = n
 							isBook={true}
 							availableCount={Number(data?.[el.type] ?? 0)}
 							bookingState={{
-								...sharedBookingState,
 								searchMode: 'main-search-room',
-								roomType: el.type,
-								roomId: el.id,
+								toDate,
+								fromDate,
+								persons,
+								filters: safeFilters,
 							}}
 						/>
 					))}

@@ -24,39 +24,38 @@ function PreviewBlock({ filters, setFilters }) {
 	const handleSubmit = () => {
 		const personsCount = getPersonsCount();
 
-		if (personsCount <= 0) {
-			toast({
-				title: 'Внимание',
-				description: 'В заявке должен быть как минимум 1 человек',
-				status: 'error',
-				duration: 4000,
-				isClosable: true,
-				variant: 'customError',
-			});
-			return;
-		}
-
-		if (personsCount > 4) {
-			dispatch(clearRooms());
-			toast({
-				title: 'Внимание',
-				description: 'Максимальное количество гостей в одном номере — 4 человека',
-				status: 'error',
-				duration: 4000,
-				isClosable: true,
-				variant: 'customError',
-			});
-			return;
-		}
-
 		if (fromDate > toDate) {
-			dispatch(
-				getRooms({
-					start_date: getDateToString(toDate),
-					end_date: getDateToString(fromDate),
-					persons: personsCount,
-				}),
-			);
+			if (personsCount > 0) {
+				if (personsCount > 4) {
+					dispatch(clearRooms());
+					toast({
+						title: 'Внимание',
+						description: 'Максимальное количество гостей в одном номере — 4 человека',
+						status: 'error',
+						duration: 4000,
+						isClosable: true,
+						variant: 'customError',
+					});
+					return;
+				}
+
+				dispatch(
+					getRooms({
+						start_date: getDateToString(toDate),
+						end_date: getDateToString(fromDate),
+						persons: personsCount,
+					}),
+				);
+			} else {
+				toast({
+					title: 'Внимание',
+					description: 'В заявке должен быть как минимум 1 человек',
+					status: 'error',
+					duration: 4000,
+					isClosable: true,
+					variant: 'customError',
+				});
+			}
 		} else {
 			toast({
 				title: 'Внимание',
