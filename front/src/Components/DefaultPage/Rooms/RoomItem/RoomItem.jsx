@@ -7,6 +7,22 @@ import { useNavigate } from 'react-router-dom';
 import { selectRoom } from '../../../../Redux/slices/userSlice';
 import { useDispatch } from 'react-redux';
 
+function normalizePersonsPayload(persons, fallbackCount = 1) {
+	if (typeof persons?.count === 'number' && persons.count > 0) {
+		return { count: persons.count };
+	}
+
+	const adults = Number(persons?.adults || 0);
+	const child = Number(persons?.child || 0);
+	const total = adults + child;
+
+	if (total > 0) {
+		return { count: total };
+	}
+
+	return { count: fallbackCount };
+}
+
 function RoomItem({
 	id,
 	name,
@@ -36,25 +52,19 @@ function RoomItem({
 
 		handleSelectRoom();
 
+		const normalizedPersons = normalizePersonsPayload(
+			bookingState?.persons,
+			1,
+		);
+
 		navigate(`/reservation/${encodeURIComponent(type)}`, {
-			state: isBook
-				? {
-						...(bookingState || {}),
-						searchMode: 'main-search-room',
-						roomType: type,
-						roomId: id,
-						persons:
-							bookingState?.persons ||
-							(typeof bookingState?.personsCount === 'number'
-								? { count: bookingState.personsCount }
-								: { count: Math.min(maxPerson, 2) }),
-				  }
-				: {
-						searchMode: 'direct-room',
-						roomType: type,
-						roomId: id,
-						persons: { count: Math.min(maxPerson, 2) },
-				  },
+			state: {
+				...(bookingState || {}),
+				searchMode: isBook ? 'main-search-room' : 'direct-room',
+				roomType: type,
+				roomId: id,
+				persons: normalizedPersons,
+			},
 		});
 	};
 

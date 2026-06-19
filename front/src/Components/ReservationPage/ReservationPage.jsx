@@ -109,6 +109,22 @@ function formatInputDate(date) {
 	return `${year}-${month}-${day}`;
 }
 
+function normalizePersonsState(persons) {
+	if (typeof persons?.count === 'number' && persons.count > 0) {
+		return { count: Math.min(Math.max(persons.count, 1), 4) };
+	}
+
+	const adults = Number(persons?.adults || 0);
+	const child = Number(persons?.child || 0);
+	const total = adults + child;
+
+	if (total > 0) {
+		return { count: Math.min(Math.max(total, 1), 4) };
+	}
+
+	return { count: 1 };
+}
+
 function ReservationPage() {
 	const dispatch = useDispatch();
 	const toast = useToast();
@@ -129,7 +145,7 @@ function ReservationPage() {
 	const [fromDate, setFromDate] = React.useState(
 		state?.fromDate ? new Date(state.fromDate) : defaultEndDate,
 	);
-	const [persons, setPersons] = React.useState(state?.persons ? state.persons : { count: 1 });
+	const [persons, setPersons] = React.useState(normalizePersonsState(state?.persons));
 	const [filters] = React.useState(
 		state?.filters
 			? state.filters
@@ -262,17 +278,14 @@ function ReservationPage() {
 				start_date: getDateToString(toDate),
 				end_date: getDateToString(fromDate),
 				persons: getPersonsCount(),
-				type: '',
+				type: effectiveSelectedRoom?.type || '',
 			}),
 		);
-	}, [dispatch, toDate, fromDate, getPersonsCount]);
+	}, [dispatch, toDate, fromDate, getPersonsCount, effectiveSelectedRoom?.type]);
 
 	React.useEffect(() => {
-		if (isDirectRoomBooking) return;
-		if (!state) return;
-
 		handleSubmit();
-	}, [isDirectRoomBooking, state, handleSubmit]);
+	}, [handleSubmit]);
 
 	const applyPromo = async () => {
 		const code = normalizeText(promoCode).toUpperCase();
@@ -379,6 +392,69 @@ function ReservationPage() {
 	const bookSubmit = async () => {
 		if (!validateForm()) return;
 
+		const roomType = effectiveSelectedRoom?.type || directRoomType || '';
+		if (!roomType) {
+			toast({
+				title: 'Ошибка бронирования',
+				description: 'Не выбран тип номера',
+				status: 'error',
+				duration: 4000,
+				isClosable: true,
+				position: 'top',
+			});
+			return;
+		}
+
+		const personsCount = getPersonsCount();
+		const roomMaxPersons = Number(effectiveSelectedRoom?.maxPerson || 0);
+
+		if (roomMaxPersons > 0 && personsCount > roomMaxPersons) {
+			toast({
+				title: 'Слишком много гостей',
+				description: 'Количество гостей превышает вместимость выбранного номера',
+				status: 'error',
+				duration: 4000,
+				isClosable: true,
+				position: 'top',
+			});
+			return;
+		}
+
+		try {
+			const availability = await dispatch(
+				getRooms({
+					start_date: getDateToString(toDate),
+					end_date: getDateToString(fromDate),
+					persons: personsCount,
+					type: roomType,
+				}),
+			).unwrap();
+
+			const freeCount = Number(availability?.[roomType] ?? 0);
+
+			if (freeCount <= 0) {
+				toast({
+					title: 'Свободных номеров нет',
+					description: 'На выбранные даты этот номер недоступен',
+					status: 'error',
+					duration: 4000,
+					isClosable: true,
+					position: 'top',
+				});
+				return;
+			}
+		} catch (error) {
+			toast({
+				title: 'Ошибка проверки доступности',
+				description: error?.message || 'Не удалось проверить доступность номера',
+				status: 'error',
+				duration: 4000,
+				isClosable: true,
+				position: 'top',
+			});
+			return;
+		}
+
 		const safeName = normalizeText(nameValue);
 		const safeLastName = normalizeText(lastNameValue);
 		const safePhone = normalizeText(telValue);
@@ -393,8 +469,8 @@ function ReservationPage() {
 			comment: safeComment,
 			start_date: getDateToString(toDate),
 			end_date: getDateToString(fromDate),
-			amount: getPersonsCount(),
-			type: effectiveSelectedRoom?.type || directRoomType || '',
+			amount: personsCount,
+			type: roomType,
 			nights: getNightsValue(),
 			promo_code: appliedPromo?.code || '',
 			promo_discount: promoDiscount || 0,
@@ -424,6 +500,7 @@ function ReservationPage() {
 			}));
 
 			removePromo();
+			handleSubmit();
 		} catch (error) {
 			toast({
 				title: 'Ошибка бронирования',

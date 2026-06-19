@@ -118,6 +118,13 @@ function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null
 		visibleRooms.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
+	const sharedBookingState = {
+		toDate,
+		fromDate,
+		persons,
+		filters: safeFilters,
+	};
+
 	return (
 		<section id="rooms" className={!data ? styles.rooms : styles.rooms__book}>
 			{!data && (
@@ -138,7 +145,18 @@ function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null
 			) : !data ? (
 				<div className={styles.rooms__grid}>
 					{visibleRooms.map((el) => (
-						<RoomItem key={el.id} {...el} isBook={false} availableCount={null} />
+						<RoomItem
+							key={el.id}
+							{...el}
+							isBook={false}
+							availableCount={null}
+							bookingState={{
+								...sharedBookingState,
+								searchMode: 'direct-room',
+								roomType: el.type,
+								roomId: el.id,
+							}}
+						/>
 					))}
 				</div>
 			) : (
@@ -150,11 +168,10 @@ function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null
 							isBook={true}
 							availableCount={Number(data?.[el.type] ?? 0)}
 							bookingState={{
+								...sharedBookingState,
 								searchMode: 'main-search-room',
-								toDate,
-								fromDate,
-								persons,
-								filters: safeFilters,
+								roomType: el.type,
+								roomId: el.id,
 							}}
 						/>
 					))}

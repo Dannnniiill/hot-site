@@ -85,35 +85,88 @@ def generate_code():
     return f'{random.randint(100000, 999999)}'
 
 
-ROOM_TYPE_MAP = {
-    'standard': Standard,
-    'luxe': Luxe,
-    'luxe plus': LuxePlus,
-    'luxe premium': LuxePremium,
+ROOM_TYPE_SETTINGS = {
+    'standard': {
+        'model': Standard,
+        'default_price': 2200,
+        'default_persons': 2,
+    },
+    'luxe': {
+        'model': Luxe,
+        'default_price': 3400,
+        'default_persons': 3,
+    },
+    'luxe plus': {
+        'model': LuxePlus,
+        'default_price': 3700,
+        'default_persons': 3,
+    },
+    'luxe premium': {
+        'model': LuxePremium,
+        'default_price': 4200,
+        'default_persons': 4,
+    },
 }
 
 
-def get_room_instance_by_type(room_type):
+def get_room_type_config(room_type):
     normalized_type = normalize_room_type(room_type)
-    model = ROOM_TYPE_MAP.get(normalized_type)
-    if not model:
+    return ROOM_TYPE_SETTINGS.get(normalized_type), normalized_type
+
+
+def get_room_type_instances(room_type):
+    config, normalized_type = get_room_type_config(room_type)
+    if not config:
         return None, normalized_type
-    return model.objects.prefetch_related('rooms').first(), normalized_type
+    queryset = config['model'].objects.prefetch_related('rooms').all().order_by('id')
+    return queryset, normalized_type
 
 
-def get_capacity_for_type(room_type):
-    instance, _ = get_room_instance_by_type(room_type)
-    return int(instance.persons) if instance else 0
+def get_room_type_rooms(room_type):
+    instances, normalized_type = get_room_type_instances(room_type)
+    if instances is None:
+        return Room.objects.none(), normalized_type
+
+    room_ids = []
+    for instance in instances:
+        room_ids.extend(instance.rooms.values_list('id', flat=True))
+
+    unique_room_ids = sorted(set(room_ids))
+    rooms_qs = Room.objects.filter(id__in=unique_room_ids).order_by('number')
+    return rooms_qs, normalized_type
 
 
-def get_free_rooms(instance, start_date, end_date):
-    if not instance:
-        return []
+def get_room_type_capacity(room_type):
+    config, normalized_type = get_room_type_config(room_type)
+    if not config:
+        return 0, normalized_type
+
+    instances, _ = get_room_type_instances(normalized_type)
+    capacities = [int(item.persons or 0) for item in instances]
+    capacity = max(capacities) if capacities else int(config['default_persons'])
+    return capacity, normalized_type
+
+
+def get_room_type_price(room_type):
+    config, normalized_type = get_room_type_config(room_type)
+    if not config:
+        return 0, normalized_type
+
+    instances, _ = get_room_type_instances(normalized_type)
+
+    for instance in instances:
+        price = int(instance.price or 0)
+        if price > 0:
+            return price, normalized_type
+
+    return int(config['default_price']), normalized_type
+
+
+def get_free_rooms(room_type, start_date, end_date):
+    rooms_qs, normalized_type = get_room_type_rooms(room_type)
 
     free_rooms = []
-    rooms = instance.rooms.all().order_by('number')
-
-    for room in rooms:
+    for room in rooms_qs:
         has_overlap = BookingDate.objects.filter(
             room=room,
             start_date__lt=end_date,
@@ -124,7 +177,7 @@ def get_free_rooms(instance, start_date, end_date):
         if not has_overlap:
             free_rooms.append(room)
 
-    return free_rooms
+    return free_rooms, normalized_type
 
 
 def send_code_email(email, code):
@@ -400,7 +453,7 @@ class ReturnFreeRooms(APIView):
         start_date = serializer.validated_data['start_date']
         end_date = serializer.validated_data['end_date']
         persons = int(serializer.validated_data['persons'])
-        requested_type = normalize_room_type(serializer.validated_data.get('type'))
+        requested_type = normalize_room_type(serializer.validated_data.get('type', ''))
 
         if start_date >= end_date:
             return Response(
@@ -415,18 +468,27 @@ class ReturnFreeRooms(APIView):
             'luxe premium': 0,
         }
 
-        type_keys = [requested_type] if requested_type else list(ROOM_TYPE_MAP.keys())
+        if requested_type and requested_type not in ROOM_TYPE_SETTINGS:
+            return Response(
+                {'message': 'Неизвестный тип номера'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        type_keys = [requested_type] if requested_type else list(ROOM_TYPE_SETTINGS.keys())
 
         for type_key in type_keys:
-            instance, normalized_type = get_room_instance_by_type(type_key)
-            if not instance:
-                continue
+            capacity, normalized_type = get_room_type_capacity(type_key)
 
-            if persons > int(instance.persons):
+            if capacity <= 0:
                 result[normalized_type] = 0
                 continue
 
-            result[normalized_type] = len(get_free_rooms(instance, start_date, end_date))
+            if persons > capacity:
+                result[normalized_type] = 0
+                continue
+
+            free_rooms, _ = get_free_rooms(normalized_type, start_date, end_date)
+            result[normalized_type] = len(free_rooms)
 
         return Response(result, status=status.HTTP_200_OK)
 
@@ -446,6 +508,7 @@ class Book(APIView):
         end_date = data['end_date']
         amount = int(data['amount'])
         email = clean_text(data['email']).lower()
+        requested_type = normalize_room_type(data['type'])
 
         if start_date >= end_date:
             return Response(
@@ -453,21 +516,26 @@ class Book(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        room_instance, normalized_type = get_room_instance_by_type(data['type'])
-
-        if not room_instance:
+        if requested_type not in ROOM_TYPE_SETTINGS:
             return Response(
                 {'message': 'Выбранный тип номера не найден'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if amount > int(room_instance.persons):
+        capacity, normalized_type = get_room_type_capacity(requested_type)
+        if capacity <= 0:
+            return Response(
+                {'message': 'Для этого типа номера не настроена вместимость'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if amount > capacity:
             return Response(
                 {'message': 'Количество гостей превышает вместимость номера'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        free_rooms = get_free_rooms(room_instance, start_date, end_date)
+        free_rooms, _ = get_free_rooms(normalized_type, start_date, end_date)
 
         if not free_rooms:
             return Response(
@@ -478,8 +546,9 @@ class Book(APIView):
         selected_room = free_rooms[0]
         free_rooms_numbers = ', '.join(str(room.number) for room in free_rooms)
         user = User.objects.filter(email__iexact=email).first()
+
         nights = max(int(data['nights']), 1)
-        room_price = int(room_instance.price)
+        room_price, _ = get_room_type_price(normalized_type)
         promo_discount = max(int(data.get('promo_discount', 0)), 0)
         total_price = int(data.get('total_price') or 0) or max((room_price * nights) - promo_discount, 0)
 
