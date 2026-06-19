@@ -68,7 +68,7 @@ const rooms = [
 	},
 ];
 
-function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null, persons = { count: 1 } }) {
+function Rooms({ data, filters, personsCount = null, toDate = null, fromDate = null, persons = { count: 1 } }) {
 	const safeFilters = filters || {
 		type: 'all',
 		price: 'all',
@@ -76,10 +76,28 @@ function Rooms({ data, filters, personsCount = 1, toDate = null, fromDate = null
 		amenities: [],
 	};
 
+	const getResolvedPersonsCount = () => {
+		if (typeof personsCount === 'number' && !Number.isNaN(personsCount)) {
+			return personsCount;
+		}
+
+		if (typeof persons?.count === 'number' && !Number.isNaN(persons.count)) {
+			return persons.count;
+		}
+
+		const adults = Number(persons?.adults || 0);
+		const child = Number(persons?.child || 0);
+		const total = adults + child;
+
+		return total > 0 ? total : 1;
+	};
+
+	const requestedPersonsCount = getResolvedPersonsCount();
+
 	let visibleRooms = [...rooms];
 
 	if (data !== null) {
-		visibleRooms = visibleRooms.filter((room) => room.maxPerson >= personsCount);
+		visibleRooms = visibleRooms.filter((room) => room.maxPerson >= requestedPersonsCount);
 	}
 
 	if (safeFilters.type !== 'all') {

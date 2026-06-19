@@ -2,7 +2,7 @@ import React from 'react';
 import styles from './PreviewBlock.module.css';
 import DateFrame from '../../UI/DateFrame/DateFrame';
 import { useDispatch } from 'react-redux';
-import { getRooms } from '../../../Redux/slices/userSlice';
+import { clearRooms, getRooms } from '../../../Redux/slices/userSlice';
 import { useToast } from '@chakra-ui/react';
 import { getDateToString } from '../../../constats';
 
@@ -24,25 +24,39 @@ function PreviewBlock({ filters, setFilters }) {
 	const handleSubmit = () => {
 		const personsCount = getPersonsCount();
 
+		if (personsCount <= 0) {
+			toast({
+				title: 'Внимание',
+				description: 'В заявке должен быть как минимум 1 человек',
+				status: 'error',
+				duration: 4000,
+				isClosable: true,
+				variant: 'customError',
+			});
+			return;
+		}
+
+		if (personsCount > 4) {
+			dispatch(clearRooms());
+			toast({
+				title: 'Внимание',
+				description: 'Максимальное количество гостей в одном номере — 4 человека',
+				status: 'error',
+				duration: 4000,
+				isClosable: true,
+				variant: 'customError',
+			});
+			return;
+		}
+
 		if (fromDate > toDate) {
-			if (personsCount > 0) {
-				dispatch(
-					getRooms({
-						start_date: getDateToString(toDate),
-						end_date: getDateToString(fromDate),
-						persons: personsCount,
-					}),
-				);
-			} else {
-				toast({
-					title: 'Внимание',
-					description: 'В заявке должен быть как минимум 1 человек',
-					status: 'error',
-					duration: 4000,
-					isClosable: true,
-					variant: 'customError',
-				});
-			}
+			dispatch(
+				getRooms({
+					start_date: getDateToString(toDate),
+					end_date: getDateToString(fromDate),
+					persons: personsCount,
+				}),
+			);
 		} else {
 			toast({
 				title: 'Внимание',
