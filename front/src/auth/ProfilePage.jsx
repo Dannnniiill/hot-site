@@ -274,7 +274,7 @@ function ProfilePage() {
 	};
 
 	const handleRepeatBooking = (booking) => {
-		navigate('/reservation', {
+		navigate('/', {
 			state: {
 				toDate: booking.start_date ? new Date(booking.start_date) : null,
 				fromDate: booking.end_date ? new Date(booking.end_date) : null,
@@ -355,7 +355,7 @@ function ProfilePage() {
 								<button style={styles.primaryButton} onClick={() => navigate('/')}>
 									На главную
 								</button>
-								<button style={styles.greenButton} onClick={() => navigate('/reservation')}>
+								<button style={styles.greenButton} onClick={() => navigate('/')}>
 									Забронировать еще
 								</button>
 								{isAdmin ? (
@@ -559,7 +559,7 @@ function ProfilePage() {
 								<div style={styles.emptyText}>
 									После оформления заявки она появится в этом разделе.
 								</div>
-								<button style={styles.primaryButton} onClick={() => navigate('/reservation')}>
+								<button style={styles.primaryButton} onClick={() => navigate('/')}>
 									Выбрать номер
 								</button>
 							</div>

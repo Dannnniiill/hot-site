@@ -1,5 +1,6 @@
 import React from 'react';
 import axios from 'axios';
+import { BASE_URL } from '../constats';
 import {
 	ResponsiveContainer,
 	ComposedChart,
@@ -18,7 +19,7 @@ import {
 const API_BASE =
 	window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 		? 'http://127.0.0.1:8000'
-		: 'http://127.0.0.1:8000';
+		: BASE_URL;
 
 const PIE_COLORS = ['#d07a4b', '#e0a35c', '#8f5b45', '#b86a58', '#c9925e', '#a86a52'];
 
