@@ -17,11 +17,11 @@ from .models import (
     Luxe,
     LuxePlus,
     LuxePremium,
-    PromotionEvent,
     Room,
     Standard,
     UserNotification,
     UserProfile,
+    PromotionEvent,
 )
 from .serializers import (
     CancelBookingSerializer,
@@ -141,10 +141,8 @@ def get_room_type_capacity(room_type):
     if not config:
         return 0, normalized_type
 
-    instances, _ = get_room_type_instances(normalized_type)
-    capacities = [int(item.persons or 0) for item in instances]
-    capacity = max(capacities) if capacities else int(config['default_persons'])
-    return capacity, normalized_type
+    default_capacity = int(config['default_persons'])
+    return default_capacity, normalized_type
 
 
 def get_room_type_price(room_type):
