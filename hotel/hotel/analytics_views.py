@@ -2,7 +2,9 @@ import os
 from collections import defaultdict
 from datetime import datetime, timedelta, time
 from io import BytesIO
+from pathlib import Path
 
+import reportlab
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.utils import timezone
@@ -367,6 +369,56 @@ def get_analytics_data(date_from=None, date_to=None, group_by='day'):
     }
 
 
+def register_pdf_fonts():
+    font_pairs = [
+        (
+            'C:/Windows/Fonts/arial.ttf',
+            'C:/Windows/Fonts/arialbd.ttf',
+            'ArialUnicode',
+            'ArialUnicode-Bold',
+        ),
+        (
+            'C:/Windows/Fonts/calibri.ttf',
+            'C:/Windows/Fonts/calibrib.ttf',
+            'CalibriUnicode',
+            'CalibriUnicode-Bold',
+        ),
+        (
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            'DejaVuSans',
+            'DejaVuSans-Bold',
+        ),
+    ]
+
+    reportlab_fonts_dir = Path(reportlab.__file__).resolve().parent / 'fonts'
+    vera_regular = reportlab_fonts_dir / 'Vera.ttf'
+    vera_bold = reportlab_fonts_dir / 'VeraBd.ttf'
+
+    if vera_regular.exists() and vera_bold.exists():
+        font_pairs.append(
+            (
+                str(vera_regular),
+                str(vera_bold),
+                'Vera',
+                'Vera-Bold',
+            )
+        )
+
+    for regular_path, bold_path, regular_name, bold_name in font_pairs:
+        if os.path.exists(regular_path) and os.path.exists(bold_path):
+            try:
+                if regular_name not in pdfmetrics.getRegisteredFontNames():
+                    pdfmetrics.registerFont(TTFont(regular_name, regular_path))
+                if bold_name not in pdfmetrics.getRegisteredFontNames():
+                    pdfmetrics.registerFont(TTFont(bold_name, bold_path))
+                return regular_name, bold_name
+            except Exception:
+                continue
+
+    return 'Helvetica', 'Helvetica-Bold'
+
+
 class AnalyticsDashboardView(APIView):
     def get(self, request):
         date_from = parse_date_safe(request.GET.get('date_from'))
@@ -577,40 +629,7 @@ class AnalyticsExportPdfView(APIView):
         p = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        def register_fonts():
-            font_pairs = [
-                (
-                    'C:/Windows/Fonts/arial.ttf',
-                    'C:/Windows/Fonts/arialbd.ttf',
-                    'ArialUnicode',
-                    'ArialUnicode-Bold',
-                ),
-                (
-                    'C:/Windows/Fonts/calibri.ttf',
-                    'C:/Windows/Fonts/calibrib.ttf',
-                    'CalibriUnicode',
-                    'CalibriUnicode-Bold',
-                ),
-                (
-                    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-                    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-                    'DejaVuSans',
-                    'DejaVuSans-Bold',
-                ),
-            ]
-
-            for regular_path, bold_path, regular_name, bold_name in font_pairs:
-                if os.path.exists(regular_path) and os.path.exists(bold_path):
-                    try:
-                        pdfmetrics.registerFont(TTFont(regular_name, regular_path))
-                        pdfmetrics.registerFont(TTFont(bold_name, bold_path))
-                        return regular_name, bold_name
-                    except Exception:
-                        continue
-
-            return 'Helvetica', 'Helvetica-Bold'
-
-        font_regular, font_bold = register_fonts()
+        font_regular, font_bold = register_pdf_fonts()
 
         left_x = 20 * mm
         right_x = width - 20 * mm
@@ -632,10 +651,11 @@ class AnalyticsExportPdfView(APIView):
         def draw_text(text, bold=False, size=11, line_height=6 * mm, gap_after=0):
             nonlocal y
             text = str(text or '')
-            lines = simpleSplit(text, font_bold if bold else font_regular, size, usable_width)
+            font_name = font_bold if bold else font_regular
+            lines = simpleSplit(text, font_name, size, usable_width)
             ensure_space(len(lines), line_height, gap_after)
 
-            p.setFont(font_bold if bold else font_regular, size)
+            p.setFont(font_name, size)
             for line in lines:
                 p.drawString(left_x, y, line)
                 y -= line_height
