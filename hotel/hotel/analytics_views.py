@@ -370,7 +370,34 @@ def get_analytics_data(date_from=None, date_to=None, group_by='day'):
 
 
 def register_pdf_fonts():
-    font_pairs = [
+    current_dir = Path(__file__).resolve().parent
+    project_fonts_dir = current_dir / 'fonts'
+
+    font_pairs = []
+
+    project_arial = project_fonts_dir / 'arial.ttf'
+    project_arial_bold = project_fonts_dir / 'arialbd.ttf'
+
+    if project_arial.exists() and project_arial_bold.exists():
+        font_pairs.append(
+            (
+                str(project_arial),
+                str(project_arial_bold),
+                'ProjectArial',
+                'ProjectArial-Bold',
+            )
+        )
+    elif project_arial.exists():
+        font_pairs.append(
+            (
+                str(project_arial),
+                str(project_arial),
+                'ProjectArial',
+                'ProjectArial-Bold',
+            )
+        )
+
+    font_pairs.extend([
         (
             'C:/Windows/Fonts/arial.ttf',
             'C:/Windows/Fonts/arialbd.ttf',
@@ -389,7 +416,7 @@ def register_pdf_fonts():
             'DejaVuSans',
             'DejaVuSans-Bold',
         ),
-    ]
+    ])
 
     reportlab_fonts_dir = Path(reportlab.__file__).resolve().parent / 'fonts'
     vera_regular = reportlab_fonts_dir / 'Vera.ttf'
