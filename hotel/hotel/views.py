@@ -1,11 +1,12 @@
 import random
+import smtplib
 import socket
 import ssl
 from datetime import timedelta
+from email.message import EmailMessage
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -19,11 +20,11 @@ from .models import (
     Luxe,
     LuxePlus,
     LuxePremium,
+    PromotionEvent,
     Room,
     Standard,
     UserNotification,
     UserProfile,
-    PromotionEvent,
 )
 from .serializers import (
     CancelBookingSerializer,
@@ -120,8 +121,7 @@ def get_room_type_instances(room_type):
     config, normalized_type = get_room_type_config(room_type)
     if not config:
         return None, normalized_type
-    queryset = config['model'].objects.prefetch_related('rooms').all().order_by('id')
-    return queryset, normalized_type
+    return config['model'].objects.all(), normalized_type
 
 
 def get_room_type_rooms(room_type):
@@ -130,12 +130,10 @@ def get_room_type_rooms(room_type):
         return Room.objects.none(), normalized_type
 
     room_ids = []
-    for instance in instances:
+    for instance in instances.prefetch_related('rooms'):
         room_ids.extend(instance.rooms.values_list('id', flat=True))
 
-    unique_room_ids = sorted(set(room_ids))
-    rooms_qs = Room.objects.filter(id__in=unique_room_ids).order_by('number')
-    return rooms_qs, normalized_type
+    return Room.objects.filter(id__in=room_ids).distinct().order_by('number'), normalized_type
 
 
 def get_room_type_capacity(room_type):
@@ -143,8 +141,13 @@ def get_room_type_capacity(room_type):
     if not config:
         return 0, normalized_type
 
-    default_capacity = int(config['default_persons'])
-    return default_capacity, normalized_type
+    instances = config['model'].objects.all()
+    persons_value = (
+        instances.values_list('persons', flat=True).first()
+        if instances.exists()
+        else config['default_persons']
+    )
+    return int(persons_value or config['default_persons']), normalized_type
 
 
 def get_room_type_price(room_type):
@@ -152,14 +155,13 @@ def get_room_type_price(room_type):
     if not config:
         return 0, normalized_type
 
-    instances, _ = get_room_type_instances(normalized_type)
-
-    for instance in instances:
-        price = int(instance.price or 0)
-        if price > 0:
-            return price, normalized_type
-
-    return int(config['default_price']), normalized_type
+    instances = config['model'].objects.all()
+    price_value = (
+        instances.values_list('price', flat=True).first()
+        if instances.exists()
+        else config['default_price']
+    )
+    return int(price_value or config['default_price']), normalized_type
 
 
 def get_free_rooms(room_type, start_date, end_date):
@@ -181,51 +183,54 @@ def get_free_rooms(room_type, start_date, end_date):
 
 
 def send_code_email(email, code):
-    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 20) or 20)
+    host = clean_text(getattr(settings, 'EMAIL_HOST', ''))
+    port = int(getattr(settings, 'EMAIL_PORT', 587) or 587)
+    username = clean_text(getattr(settings, 'EMAIL_HOST_USER', ''))
+    password = clean_text(getattr(settings, 'EMAIL_HOST_PASSWORD', ''))
+    from_email = clean_text(getattr(settings, 'DEFAULT_FROM_EMAIL', '')) or username
+    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 15) or 15)
+    use_ssl = bool(getattr(settings, 'EMAIL_USE_SSL', False))
+    use_tls = bool(getattr(settings, 'EMAIL_USE_TLS', True))
 
-    connection = get_connection(
-        backend=settings.EMAIL_BACKEND,
-        host=settings.EMAIL_HOST,
-        port=settings.EMAIL_PORT,
-        username=settings.EMAIL_HOST_USER,
-        password=settings.EMAIL_HOST_PASSWORD,
-        use_tls=settings.EMAIL_USE_TLS,
-        use_ssl=settings.EMAIL_USE_SSL,
-        timeout=timeout,
-        fail_silently=False,
-    )
+    if not host or not username or not password or not from_email:
+        raise RuntimeError('Почтовые настройки не заполнены на сервере')
 
-    subject = 'Код подтверждения регистрации'
-    body = (
+    message = EmailMessage()
+    message['Subject'] = 'Код подтверждения регистрации'
+    message['From'] = from_email
+    message['To'] = email
+    message.set_content(
         f'Ваш код подтверждения: {code}\n\n'
         'Код действует 10 минут.'
     )
 
-    message = EmailMultiAlternatives(
-        subject=subject,
-        body=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[email],
-        connection=connection,
-    )
-    message.encoding = 'utf-8'
-
     try:
-        connection.open()
-        sent_count = message.send(fail_silently=False)
-        if sent_count != 1:
-            raise RuntimeError('Письмо не было отправлено')
+        if use_ssl:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as server:
+                server.login(username, password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(host, port, timeout=timeout) as server:
+                server.ehlo()
+                if use_tls:
+                    context = ssl.create_default_context()
+                    server.starttls(context=context)
+                    server.ehlo()
+                server.login(username, password)
+                server.send_message(message)
+    except smtplib.SMTPAuthenticationError:
+        raise RuntimeError('Сервер почты отклонил логин или пароль')
+    except smtplib.SMTPRecipientsRefused:
+        raise RuntimeError('Почтовый сервер отклонил адрес получателя')
     except (socket.timeout, TimeoutError):
-        raise RuntimeError('Сервер почты не ответил вовремя. Проверь EMAIL_HOST, EMAIL_PORT и EMAIL_TIMEOUT.')
+        raise RuntimeError('Почтовый сервер не ответил вовремя')
     except ssl.SSLError as exc:
-        raise RuntimeError(f'Ошибка SSL при подключении к почте: {exc}')
+        raise RuntimeError(f'Ошибка SSL/TLS при подключении к почте: {exc}')
+    except smtplib.SMTPException as exc:
+        raise RuntimeError(f'Ошибка SMTP: {exc}')
     except OSError as exc:
         raise RuntimeError(f'Ошибка подключения к почте: {exc}')
-    finally:
-        try:
-            connection.close()
-        except Exception:
-            pass
 
 
 def send_booking_email(email, booking, action='created'):
@@ -303,7 +308,7 @@ class RegisterRequestView(APIView):
             is_used=False,
         ).delete()
 
-        EmailVerificationCode.objects.create(
+        verification = EmailVerificationCode.objects.create(
             email=email,
             code=code,
             purpose='register',
@@ -316,6 +321,7 @@ class RegisterRequestView(APIView):
         try:
             send_code_email(email, code)
         except Exception as exc:
+            verification.delete()
             return Response(
                 {'message': f'Не удалось отправить письмо: {str(exc)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -417,12 +423,19 @@ class LoginView(APIView):
         password = serializer.validated_data['password']
 
         user = User.objects.filter(email__iexact=email).first()
-
         if not user or not user.check_password(password):
             return Response(
                 {'message': 'Неверный email или пароль'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        create_notification(
+            user=user,
+            email=email,
+            title='Вход в аккаунт',
+            message='Выполнен успешный вход в аккаунт.',
+            notification_type='auth',
+        )
 
         return Response(
             {
@@ -447,19 +460,22 @@ class ProfileUpdateView(APIView):
         user = User.objects.filter(id=data['user_id']).first()
 
         if not user:
-            return Response({'message': 'Пользователь не найден'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'message': 'Пользователь не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        new_email = clean_text(data['email']).lower()
-
-        if User.objects.filter(email__iexact=new_email).exclude(id=user.id).exists():
+        normalized_email = clean_text(data['email']).lower()
+        conflict_user = User.objects.filter(email__iexact=normalized_email).exclude(id=user.id).first()
+        if conflict_user:
             return Response(
                 {'message': 'Этот email уже используется другим пользователем'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         user.first_name = clean_text(data['name'])
-        user.email = new_email
-        user.username = new_email
+        user.email = normalized_email
+        user.username = normalized_email
         user.save(update_fields=['first_name', 'email', 'username'])
 
         profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -468,7 +484,7 @@ class ProfileUpdateView(APIView):
 
         return Response(
             {
-                'message': 'Профиль обновлён',
+                'message': 'Профиль успешно обновлён',
                 'user': serialize_user(user),
             },
             status=status.HTTP_200_OK,
@@ -485,47 +501,51 @@ class ReturnFreeRooms(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        start_date = serializer.validated_data['start_date']
-        end_date = serializer.validated_data['end_date']
-        persons = int(serializer.validated_data['persons'])
-        requested_type = normalize_room_type(serializer.validated_data.get('type', ''))
+        data = serializer.validated_data
+        start_date = data['start_date']
+        end_date = data['end_date']
+        persons = int(data['persons'])
+        selected_type = normalize_room_type(data.get('type', ''))
 
-        if start_date >= end_date:
+        if end_date <= start_date:
             return Response(
-                {'message': 'Дата заезда должна быть раньше даты выезда'},
+                {'message': 'Дата выезда должна быть позже даты заезда'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        result = {
-            'standard': 0,
-            'luxe': 0,
-            'luxe plus': 0,
-            'luxe premium': 0,
-        }
+        room_types = ['standard', 'luxe', 'luxe plus', 'luxe premium']
+        response_data = {}
 
-        if requested_type and requested_type not in ROOM_TYPE_SETTINGS:
-            return Response(
-                {'message': 'Неизвестный тип номера'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        type_keys = [requested_type] if requested_type else list(ROOM_TYPE_SETTINGS.keys())
-
-        for type_key in type_keys:
-            capacity, normalized_type = get_room_type_capacity(type_key)
-
-            if capacity <= 0:
-                result[normalized_type] = 0
-                continue
-
+        for room_type in room_types:
+            capacity, normalized_type = get_room_type_capacity(room_type)
             if persons > capacity:
-                result[normalized_type] = 0
+                response_data[normalized_type] = 0
                 continue
 
-            free_rooms, _ = get_free_rooms(normalized_type, start_date, end_date)
-            result[normalized_type] = len(free_rooms)
+            free_rooms, _ = get_free_rooms(room_type, start_date, end_date)
+            response_data[normalized_type] = len(free_rooms)
 
-        return Response(result, status=status.HTTP_200_OK)
+        if selected_type:
+            if selected_type not in response_data:
+                return Response(
+                    {'message': 'Неизвестный тип номера'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                {
+                    'message': 'Свободные номера получены',
+                    'data': {selected_type: response_data[selected_type]},
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                'message': 'Свободные номера получены',
+                'data': response_data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class Book(APIView):
@@ -534,44 +554,52 @@ class Book(APIView):
 
         if not serializer.is_valid():
             return Response(
-                {'message': 'Неверные данные для бронирования', 'errors': serializer.errors},
+                {'message': 'Неверные данные бронирования', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         data = serializer.validated_data
+
         start_date = data['start_date']
         end_date = data['end_date']
+        room_type = normalize_room_type(data['type'])
         amount = int(data['amount'])
+        nights = int(data['nights'])
+        first_name = clean_text(data['first_name'])
+        last_name = clean_text(data['last_name'])
+        phone_number = clean_text(data['phone_number'])
         email = clean_text(data['email']).lower()
-        requested_type = normalize_room_type(data['type'])
+        comment = clean_text(data.get('comment', ''))
+        promo_code = clean_text(data.get('promo_code', ''))
+        promo_discount = int(data.get('promo_discount', 0) or 0)
+        total_price = int(data.get('total_price', 0) or 0)
 
-        if start_date >= end_date:
+        if end_date <= start_date:
             return Response(
-                {'message': 'Дата заезда должна быть раньше даты выезда'},
+                {'message': 'Дата выезда должна быть позже даты заезда'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if requested_type not in ROOM_TYPE_SETTINGS:
+        capacity, normalized_type = get_room_type_capacity(room_type)
+        if not capacity:
             return Response(
-                {'message': 'Выбранный тип номера не найден'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'message': 'Неизвестный тип номера'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        capacity, normalized_type = get_room_type_capacity(requested_type)
-        if capacity <= 0:
+        if amount < 1:
             return Response(
-                {'message': 'Для этого типа номера не настроена вместимость'},
+                {'message': 'Количество гостей должно быть не меньше 1'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if amount > capacity:
             return Response(
-                {'message': 'Количество гостей превышает вместимость номера'},
+                {'message': f'Для номера "{normalized_type}" доступно максимум {capacity} гостя(ей)'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        free_rooms, _ = get_free_rooms(normalized_type, start_date, end_date)
-
+        free_rooms, _ = get_free_rooms(room_type, start_date, end_date)
         if not free_rooms:
             return Response(
                 {'message': 'Свободных номеров на выбранные даты нет'},
@@ -579,50 +607,51 @@ class Book(APIView):
             )
 
         selected_room = free_rooms[0]
-        free_rooms_numbers = ', '.join(str(room.number) for room in free_rooms)
-        user = User.objects.filter(email__iexact=email).first()
+        price, _ = get_room_type_price(room_type)
+        calculated_total = max((price * nights) - promo_discount, 0)
 
-        nights = max(int(data['nights']), 1)
-        room_price, _ = get_room_type_price(normalized_type)
-        promo_discount = max(int(data.get('promo_discount', 0)), 0)
-        total_price = int(data.get('total_price') or 0) or max((room_price * nights) - promo_discount, 0)
+        if total_price <= 0:
+            total_price = calculated_total
+
+        user = User.objects.filter(email__iexact=email).first()
 
         booking = BookingDate.objects.create(
             user=user,
             room=selected_room,
-            first_name=clean_text(data.get('first_name')),
-            last_name=clean_text(data.get('last_name')),
-            phone_number=clean_text(data.get('phone_number')),
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone_number,
             email=email,
-            comment=clean_text(data.get('comment', '')),
+            comment=comment,
             amount=amount,
             nights=nights,
-            price=room_price,
+            price=price,
             type=normalized_type,
             number=str(selected_room.number),
-            free_rooms=free_rooms_numbers,
-            start_date=start_date,
-            end_date=end_date,
-            promo_code=clean_text(data.get('promo_code', '')),
+            free_rooms=', '.join(str(room.number) for room in free_rooms),
+            promo_code=promo_code,
             promo_discount=promo_discount,
             total_price=total_price,
+            start_date=start_date,
+            end_date=end_date,
             status='new',
         )
 
         selected_room.booked.add(booking)
 
-        create_notification(
-            user=user,
-            email=email,
-            title='Бронирование создано',
-            message=f'Заявка {booking.booking_number} успешно создана.',
-            notification_type='booking_created',
-        )
+        if user:
+            create_notification(
+                user=user,
+                email=email,
+                title='Создано бронирование',
+                message=(
+                    f'Создано бронирование {booking.booking_number} '
+                    f'на номер {normalized_type} ({selected_room.number}).'
+                ),
+                notification_type='booking_created',
+            )
 
-        try:
-            send_booking_email(email, booking, action='created')
-        except Exception:
-            pass
+        send_booking_email(email, booking, action='created')
 
         return Response(
             {
@@ -630,22 +659,18 @@ class Book(APIView):
                 'booking': {
                     'id': booking.id,
                     'booking_number': booking.booking_number,
-                    'first_name': booking.first_name,
-                    'last_name': booking.last_name,
-                    'phone_number': booking.phone_number,
-                    'email': booking.email,
-                    'type': booking.type,
-                    'number': booking.number,
+                    'room_number': clean_text(booking.number),
+                    'type': clean_text(booking.type),
+                    'status': clean_text(booking.status),
+                    'status_label': normalize_booking_status_for_ui(booking.status),
+                    'created_at': safe_iso_datetime(booking.created_at),
+                    'start_date': booking.start_date.isoformat() if booking.start_date else '',
+                    'end_date': booking.end_date.isoformat() if booking.end_date else '',
                     'amount': booking.amount,
-                    'nights': booking.nights,
                     'price': booking.price,
-                    'promo_code': booking.promo_code,
+                    'promo_code': clean_text(booking.promo_code),
                     'promo_discount': booking.promo_discount,
                     'total_price': booking.total_price,
-                    'start_date': str(booking.start_date or ''),
-                    'end_date': str(booking.end_date or ''),
-                    'status': booking.status,
-                    'created_at': safe_iso_datetime(booking.created_at),
                 },
             },
             status=status.HTTP_201_CREATED,
@@ -653,53 +678,50 @@ class Book(APIView):
 
 
 class MyBookingsView(APIView):
-    def get(self, request):
-        email = clean_text(request.GET.get('email')).lower()
+    def post(self, request):
+        email = clean_text(request.data.get('email')).lower()
 
         if not email:
             return Response(
-                {'message': 'Не указан email пользователя'},
+                {'message': 'Не указан email'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        bookings = BookingDate.objects.filter(email__iexact=email).order_by('-id')
-        data = []
+        bookings = BookingDate.objects.filter(email__iexact=email).order_by('-created_at')
 
+        result = []
         for booking in bookings:
-            total_price = int(booking.total_price or 0)
-            nights = max(int(booking.nights or 1), 1)
-            price_per_night = int(booking.price or 0)
-            if not price_per_night and total_price:
-                price_per_night = round(total_price / nights)
+            result.append({
+                'id': booking.id,
+                'booking_number': clean_text(booking.booking_number),
+                'first_name': clean_text(booking.first_name),
+                'last_name': clean_text(booking.last_name),
+                'phone_number': clean_text(booking.phone_number),
+                'email': clean_text(booking.email).lower(),
+                'comment': clean_text(booking.comment),
+                'amount': booking.amount,
+                'nights': booking.nights,
+                'price': booking.price,
+                'type': clean_text(booking.type),
+                'room_number': clean_text(booking.number),
+                'promo_code': clean_text(booking.promo_code),
+                'promo_discount': booking.promo_discount,
+                'total_price': booking.total_price,
+                'start_date': booking.start_date.isoformat() if booking.start_date else '',
+                'end_date': booking.end_date.isoformat() if booking.end_date else '',
+                'status': clean_text(booking.status),
+                'status_label': normalize_booking_status_for_ui(booking.status),
+                'created_at': safe_iso_datetime(booking.created_at),
+                'updated_at': safe_iso_datetime(booking.updated_at),
+            })
 
-            data.append(
-                {
-                    'id': booking.id,
-                    'bookingNumber': booking.booking_number,
-                    'first_name': clean_text(booking.first_name),
-                    'last_name': clean_text(booking.last_name),
-                    'phone_number': clean_text(booking.phone_number),
-                    'email': clean_text(booking.email),
-                    'type': clean_text(booking.type),
-                    'roomName': clean_text(booking.type),
-                    'number': clean_text(booking.number),
-                    'amount': booking.amount,
-                    'nights': nights,
-                    'pricePerNight': price_per_night,
-                    'promoCode': clean_text(booking.promo_code),
-                    'promoDiscount': int(booking.promo_discount or 0),
-                    'totalPrice': total_price,
-                    'comment': clean_text(booking.comment),
-                    'start_date': str(booking.start_date or ''),
-                    'end_date': str(booking.end_date or ''),
-                    'status': normalize_booking_status_for_ui(booking.status),
-                    'createdAt': safe_iso_datetime(booking.created_at),
-                    'checkInTime': '14:00',
-                    'checkOutTime': '12:00',
-                }
-            )
-
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(
+            {
+                'message': 'Бронирования получены',
+                'bookings': result,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class CancelBookingView(APIView):
@@ -708,7 +730,7 @@ class CancelBookingView(APIView):
 
         if not serializer.is_valid():
             return Response(
-                {'message': 'Неверные данные для отмены', 'errors': serializer.errors},
+                {'message': 'Неверные данные отмены', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -716,57 +738,90 @@ class CancelBookingView(APIView):
         booking = BookingDate.objects.filter(id=data['booking_id']).first()
 
         if not booking:
-            return Response({'message': 'Бронирование не найдено'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'message': 'Бронирование не найдено'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        request_email = clean_text(data.get('email')).lower()
+        request_email = clean_text(data.get('email', '')).lower()
+        request_user_id = data.get('user_id')
+
+        if request_user_id and booking.user_id and booking.user_id != request_user_id:
+            return Response(
+                {'message': 'Нет доступа к этому бронированию'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if request_email and clean_text(booking.email).lower() != request_email:
-            return Response({'message': 'Нет доступа к этому бронированию'}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {'message': 'Нет доступа к этому бронированию'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        if clean_text(booking.status).lower() in {'cancelled', 'canceled', 'cancel', 'отменена'}:
-            return Response({'message': 'Бронирование уже отменено'}, status=status.HTTP_400_BAD_REQUEST)
+        if booking.status == 'cancelled':
+            return Response(
+                {'message': 'Бронирование уже отменено'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         booking.status = 'cancelled'
         booking.save(update_fields=['status', 'updated_at'])
 
-        create_notification(
-            user=booking.user,
-            email=booking.email,
-            title='Бронирование отменено',
-            message=f'Заявка {booking.booking_number} была отменена.',
-            notification_type='booking_cancelled',
+        if booking.user:
+            create_notification(
+                user=booking.user,
+                email=booking.email,
+                title='Бронирование отменено',
+                message=f'Бронирование {booking.booking_number} было отменено.',
+                notification_type='booking_cancelled',
+            )
+
+        send_booking_email(clean_text(booking.email).lower(), booking, action='cancelled')
+
+        return Response(
+            {
+                'message': 'Бронирование успешно отменено',
+                'booking': {
+                    'id': booking.id,
+                    'booking_number': clean_text(booking.booking_number),
+                    'status': clean_text(booking.status),
+                    'status_label': normalize_booking_status_for_ui(booking.status),
+                },
+            },
+            status=status.HTTP_200_OK,
         )
-
-        try:
-            send_booking_email(booking.email, booking, action='cancelled')
-        except Exception:
-            pass
-
-        return Response({'message': 'Бронирование успешно отменено'}, status=status.HTTP_200_OK)
 
 
 class UserNotificationsView(APIView):
-    def get(self, request):
-        email = clean_text(request.GET.get('email')).lower()
+    def post(self, request):
+        email = clean_text(request.data.get('email')).lower()
 
         if not email:
             return Response(
-                {'message': 'Не указан email пользователя'},
+                {'message': 'Не указан email'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        notifications = UserNotification.objects.filter(email__iexact=email).order_by('-id')
-        data = [
-            {
+        notifications = UserNotification.objects.filter(email__iexact=email).order_by('-created_at')
+
+        result = []
+        for item in notifications:
+            result.append({
                 'id': item.id,
-                'title': item.title,
-                'message': item.message,
-                'notification_type': item.notification_type,
+                'title': clean_text(item.title),
+                'message': clean_text(item.message),
+                'notification_type': clean_text(item.notification_type),
                 'is_read': item.is_read,
                 'created_at': safe_iso_datetime(item.created_at),
-            }
-            for item in notifications
-        ]
-        return Response(data, status=status.HTTP_200_OK)
+            })
+
+        return Response(
+            {
+                'message': 'Уведомления получены',
+                'notifications': result,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class MarkNotificationReadView(APIView):
@@ -775,18 +830,25 @@ class MarkNotificationReadView(APIView):
 
         if not serializer.is_valid():
             return Response(
-                {'message': 'Неверные данные', 'errors': serializer.errors},
+                {'message': 'Неверные данные уведомления', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         notification = UserNotification.objects.filter(id=serializer.validated_data['notification_id']).first()
 
         if not notification:
-            return Response({'message': 'Уведомление не найдено'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {'message': 'Уведомление не найдено'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         notification.is_read = True
         notification.save(update_fields=['is_read'])
-        return Response({'message': 'Уведомление отмечено как прочитанное'}, status=status.HTTP_200_OK)
+
+        return Response(
+            {'message': 'Уведомление отмечено как прочитанное'},
+            status=status.HTTP_200_OK,
+        )
 
 
 class PromotionTrackView(APIView):
@@ -795,7 +857,7 @@ class PromotionTrackView(APIView):
 
         if not serializer.is_valid():
             return Response(
-                {'message': 'Неверные данные по акции', 'errors': serializer.errors},
+                {'message': 'Неверные данные акции', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
