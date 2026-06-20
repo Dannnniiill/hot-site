@@ -3,7 +3,13 @@ import styles from './Header.module.css';
 import { NavLink } from 'react-router-dom';
 import { ABOUT, GALLERY, QUESTIONS, ROOMS, CONTACTS, scrollById } from '../../constats';
 
-function Header({ main, isOpen, setIsOpen }) {
+function Header({ main, isOpen: controlledIsOpen, setIsOpen: controlledSetIsOpen }) {
+	const [localIsOpen, localSetIsOpen] = React.useState(false);
+
+	const isControlled = typeof controlledSetIsOpen === 'function';
+	const isOpen = isControlled ? controlledIsOpen : localIsOpen;
+	const setIsOpen = isControlled ? controlledSetIsOpen : localSetIsOpen;
+
 	return (
 		<header className={styles.header}>
 			<NavLink to="/" className={styles.logo__link}></NavLink>
