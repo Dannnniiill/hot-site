@@ -1,9 +1,11 @@
 import random
+import socket
+import ssl
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -179,16 +181,51 @@ def get_free_rooms(room_type, start_date, end_date):
 
 
 def send_code_email(email, code):
-    send_mail(
-        subject='Код подтверждения регистрации',
-        message=(
-            f'Ваш код подтверждения: {code}\n\n'
-            'Код действует 10 минут.'
-        ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[email],
+    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 20) or 20)
+
+    connection = get_connection(
+        backend=settings.EMAIL_BACKEND,
+        host=settings.EMAIL_HOST,
+        port=settings.EMAIL_PORT,
+        username=settings.EMAIL_HOST_USER,
+        password=settings.EMAIL_HOST_PASSWORD,
+        use_tls=settings.EMAIL_USE_TLS,
+        use_ssl=settings.EMAIL_USE_SSL,
+        timeout=timeout,
         fail_silently=False,
     )
+
+    subject = 'Код подтверждения регистрации'
+    body = (
+        f'Ваш код подтверждения: {code}\n\n'
+        'Код действует 10 минут.'
+    )
+
+    message = EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[email],
+        connection=connection,
+    )
+    message.encoding = 'utf-8'
+
+    try:
+        connection.open()
+        sent_count = message.send(fail_silently=False)
+        if sent_count != 1:
+            raise RuntimeError('Письмо не было отправлено')
+    except (socket.timeout, TimeoutError):
+        raise RuntimeError('Сервер почты не ответил вовремя. Проверь EMAIL_HOST, EMAIL_PORT и EMAIL_TIMEOUT.')
+    except ssl.SSLError as exc:
+        raise RuntimeError(f'Ошибка SSL при подключении к почте: {exc}')
+    except OSError as exc:
+        raise RuntimeError(f'Ошибка подключения к почте: {exc}')
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
 
 
 def send_booking_email(email, booking, action='created'):
