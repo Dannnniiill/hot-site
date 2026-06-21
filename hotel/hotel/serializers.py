@@ -44,6 +44,7 @@ class RequestBronSerializer(serializers.Serializer):
 
 class RegisterSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
+    last_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     email = serializers.EmailField()
     password = serializers.CharField(max_length=255)
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default='')
@@ -141,7 +142,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'first_name', 'email', 'profile', 'date_joined')
+        fields = ('id', 'first_name', 'last_name', 'email', 'profile', 'date_joined')
 
 
 class NotificationSerializer(serializers.ModelSerializer):

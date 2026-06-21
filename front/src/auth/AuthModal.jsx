@@ -2,13 +2,11 @@ import React, { useState } from 'react';
 import { useAuth } from './AuthProvider';
 
 function AuthModal() {
-	const { login, register, verifyRegisterCode } = useAuth();
+	const { login, register } = useAuth();
 
 	const [mode, setMode] = useState('register');
-	const [registerStep, setRegisterStep] = useState('form');
 	const [error, setError] = useState('');
 	const [successMessage, setSuccessMessage] = useState('');
-	const [verificationEmail, setVerificationEmail] = useState('');
 
 	const [registerForm, setRegisterForm] = useState({
 		name: '',
@@ -20,10 +18,6 @@ function AuthModal() {
 	const [loginForm, setLoginForm] = useState({
 		email: '',
 		password: '',
-	});
-
-	const [verifyForm, setVerifyForm] = useState({
-		code: '',
 	});
 
 	const handleRegisterChange = (e) => {
@@ -39,16 +33,11 @@ function AuthModal() {
 		setLoginForm((prev) => ({ ...prev, [name]: value }));
 	};
 
-	const handleVerifyChange = (e) => {
-		const { value } = e.target;
-		setVerifyForm({ code: value.replace(/\D/g, '').slice(0, 6) });
-	};
-
 	const getFullName = () => {
 		return `${registerForm.name.trim()} ${registerForm.lastName.trim()}`.trim();
 	};
 
-	const handleNextStep = (e) => {
+	const handleRegisterSubmit = async (e) => {
 		e.preventDefault();
 		setError('');
 		setSuccessMessage('');
@@ -63,14 +52,6 @@ function AuthModal() {
 			return;
 		}
 
-		setVerificationEmail(registerForm.email.trim());
-		setRegisterStep('confirm');
-	};
-
-	const handleSendCode = async () => {
-		setError('');
-		setSuccessMessage('');
-
 		const result = await register({
 			name: getFullName(),
 			email: registerForm.email.trim(),
@@ -82,31 +63,7 @@ function AuthModal() {
 			return;
 		}
 
-		setSuccessMessage('Код подтверждения отправлен на вашу электронную почту');
-		setRegisterStep('verify');
-	};
-
-	const handleVerifySubmit = async (e) => {
-		e.preventDefault();
-		setError('');
-		setSuccessMessage('');
-
-		if (!verifyForm.code.trim() || verifyForm.code.trim().length !== 6) {
-			setError('Введите 6-значный код');
-			return;
-		}
-
-		const result = await verifyRegisterCode({
-			email: verificationEmail,
-			code: verifyForm.code.trim(),
-		});
-
-		if (!result.success) {
-			setError(result.message);
-			return;
-		}
-
-		setSuccessMessage('Регистрация подтверждена. Вход выполнен автоматически.');
+		setSuccessMessage('Регистрация выполнена успешно');
 	};
 
 	const handleLoginSubmit = async (e) => {
@@ -129,13 +86,6 @@ function AuthModal() {
 		setSuccessMessage('Вход выполнен успешно');
 	};
 
-	const resetRegisterFlow = () => {
-		setError('');
-		setSuccessMessage('');
-		setRegisterStep('form');
-		setVerifyForm({ code: '' });
-	};
-
 	return (
 		<div style={styles.overlay}>
 			<div style={styles.modal}>
@@ -143,19 +93,15 @@ function AuthModal() {
 
 				<p style={styles.subtitle}>
 					{mode === 'register'
-						? registerStep === 'form'
-							? 'Зарегистрируйтесь, чтобы войти на сайт'
-							: registerStep === 'confirm'
-							? `Сейчас код подтверждения будет отправлен на почту ${verificationEmail}`
-							: `Введите код, отправленный на ${verificationEmail}`
+						? 'Зарегистрируйтесь, чтобы войти на сайт'
 						: 'Войдите в свой аккаунт'}
 				</p>
 
 				{error ? <div style={styles.error}>{error}</div> : null}
 				{successMessage ? <div style={styles.success}>{successMessage}</div> : null}
 
-				{mode === 'register' && registerStep === 'form' ? (
-					<form onSubmit={handleNextStep} style={styles.form}>
+				{mode === 'register' ? (
+					<form onSubmit={handleRegisterSubmit} style={styles.form}>
 						<input
 							type="text"
 							name="name"
@@ -193,51 +139,7 @@ function AuthModal() {
 						/>
 
 						<button type="submit" style={styles.button}>
-							Далее
-						</button>
-					</form>
-				) : null}
-
-				{mode === 'register' && registerStep === 'confirm' ? (
-					<div style={styles.form}>
-						<div style={styles.infoBox}>
-							После нажатия на кнопку ниже мы отправим 6-значный код подтверждения на указанную электронную почту.
-						</div>
-
-						<button type="button" style={styles.button} onClick={handleSendCode}>
-							Получить код
-						</button>
-
-						<button type="button" onClick={resetRegisterFlow} style={styles.secondaryButton}>
-							Назад
-						</button>
-					</div>
-				) : null}
-
-				{mode === 'register' && registerStep === 'verify' ? (
-					<form onSubmit={handleVerifySubmit} style={styles.form}>
-						<input
-							type="text"
-							placeholder="6-значный код"
-							value={verifyForm.code}
-							onChange={handleVerifyChange}
-							style={styles.input}
-						/>
-
-						<button type="submit" style={styles.button}>
-							Подтвердить регистрацию
-						</button>
-
-						<button
-							type="button"
-							onClick={() => {
-								setError('');
-								setSuccessMessage('');
-								setRegisterStep('confirm');
-							}}
-							style={styles.secondaryButton}
-						>
-							Назад
+							Зарегистрироваться
 						</button>
 					</form>
 				) : null}
@@ -275,8 +177,6 @@ function AuthModal() {
 							setMode(mode === 'register' ? 'login' : 'register');
 							setError('');
 							setSuccessMessage('');
-							setRegisterStep('form');
-							setVerifyForm({ code: '' });
 						}}
 						style={styles.linkButton}
 					>

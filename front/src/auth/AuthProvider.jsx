@@ -47,45 +47,19 @@ export function AuthProvider({ children }) {
 				},
 			);
 
-			return {
-				success: true,
-				message: response.data?.message || 'Код подтверждения отправлен',
-			};
-		} catch (error) {
-			return {
-				success: false,
-				message: error?.response?.data?.message || 'Не удалось отправить код подтверждения',
-			};
-		}
-	};
-
-	const verifyRegisterCode = async ({ email, code }) => {
-		try {
-			const response = await axios.post(
-				`${API_BASE}/auth/register/verify/`,
-				{
-					email,
-					code,
-				},
-				{
-					headers: { 'Content-Type': 'application/json' },
-					timeout: 10000,
-				},
-			);
-
 			const normalizedUser = normalizeUserRole(response.data.user);
 			localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
 			setUser(normalizedUser);
 
 			return {
 				success: true,
-				message: response.data?.message || 'Регистрация подтверждена',
+				message: response.data?.message || 'Регистрация выполнена успешно',
 				user: normalizedUser,
 			};
 		} catch (error) {
 			return {
 				success: false,
-				message: error?.response?.data?.message || 'Не удалось подтвердить код',
+				message: error?.response?.data?.message || 'Не удалось зарегистрироваться',
 			};
 		}
 	};
@@ -171,7 +145,6 @@ export function AuthProvider({ children }) {
 		isAuthenticated: !!user,
 		isAdmin: user?.role === 'admin',
 		register,
-		verifyRegisterCode,
 		login,
 		updateProfile,
 		logout,

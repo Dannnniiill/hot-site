@@ -1,28 +1,20 @@
-import random
-import socket
-from datetime import timedelta
-
-from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import (
     BookingDate,
-    EmailVerificationCode,
     Feedback,
     Luxe,
     LuxePlus,
     LuxePremium,
+    PromotionEvent,
     Room,
     Standard,
     UserNotification,
     UserProfile,
-    PromotionEvent,
 )
 from .serializers import (
     CancelBookingSerializer,
@@ -80,10 +72,6 @@ def safe_iso_datetime(value):
         return value.isoformat()
     except Exception:
         return str(value)
-
-
-def generate_code():
-    return f'{random.randint(100000, 999999)}'
 
 
 ROOM_TYPE_SETTINGS = {
@@ -179,58 +167,6 @@ def get_free_rooms(room_type, start_date, end_date):
     return free_rooms, normalized_type
 
 
-def send_code_email(email, code):
-    subject = 'Код подтверждения регистрации'
-    text_body = (
-        f'Ваш код подтверждения: {code}\n\n'
-        'Код действует 10 минут.'
-    )
-    html_body = f"""
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #222;">
-            <h2 style="margin-bottom: 12px;">Код подтверждения регистрации</h2>
-            <p>Ваш код подтверждения:</p>
-            <div style="font-size: 28px; font-weight: 700; letter-spacing: 4px; margin: 16px 0;">
-                {code}
-            </div>
-            <p>Код действует 10 минут.</p>
-        </div>
-    """
-
-    connection = get_connection(
-        backend=settings.EMAIL_BACKEND,
-        host=settings.EMAIL_HOST,
-        port=settings.EMAIL_PORT,
-        username=settings.EMAIL_HOST_USER,
-        password=settings.EMAIL_HOST_PASSWORD,
-        use_tls=settings.EMAIL_USE_TLS,
-        use_ssl=settings.EMAIL_USE_SSL,
-        timeout=getattr(settings, 'EMAIL_TIMEOUT', 20),
-        fail_silently=False,
-    )
-
-    try:
-        connection.open()
-
-        message = EmailMultiAlternatives(
-            subject=subject,
-            body=text_body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[email],
-            connection=connection,
-        )
-        message.attach_alternative(html_body, 'text/html')
-        message.send(fail_silently=False)
-    except socket.timeout:
-        raise Exception('SMTP сервер не ответил вовремя')
-    except Exception as exc:
-        raise Exception(str(exc))
-    finally:
-        try:
-            connection.close()
-        except Exception:
-            pass
-
-
 def send_booking_email(email, booking, action='created'):
     return True
 
@@ -250,6 +186,7 @@ def serialize_user(user):
     return {
         'id': user.id,
         'name': clean_text(user.first_name),
+        'last_name': clean_text(user.last_name),
         'email': clean_text(user.email).lower(),
         'phone': clean_text(profile.phone),
         'createdAt': safe_iso_datetime(user.date_joined),
@@ -298,35 +235,33 @@ class RegisterRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        code = generate_code()
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                password=data['password'],
+                first_name=clean_text(data['name']),
+                last_name=clean_text(data.get('last_name', '')),
+            )
+            UserProfile.objects.create(
+                user=user,
+                phone=clean_text(data.get('phone', '')),
+            )
 
-        EmailVerificationCode.objects.filter(
-            email__iexact=email,
-            purpose='register',
-            is_used=False,
-        ).delete()
-
-        EmailVerificationCode.objects.create(
-            email=email,
-            code=code,
-            purpose='register',
-            payload_name=clean_text(data['name']),
-            payload_phone=clean_text(data.get('phone', '')),
-            payload_password=data['password'],
-            expires_at=timezone.now() + timedelta(minutes=10),
-        )
-
-        try:
-            send_code_email(email, code)
-        except Exception as exc:
-            return Response(
-                {'message': f'Не удалось отправить письмо: {str(exc)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            create_notification(
+                user=user,
+                email=email,
+                title='Регистрация выполнена',
+                message='Ваш аккаунт успешно создан.',
+                notification_type='auth',
             )
 
         return Response(
-            {'message': 'Код подтверждения отправлен на email'},
-            status=status.HTTP_200_OK,
+            {
+                'message': 'Регистрация успешно выполнена',
+                'user': serialize_user(user),
+            },
+            status=status.HTTP_201_CREATED,
         )
 
 
@@ -340,69 +275,9 @@ class RegisterVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        email = clean_text(serializer.validated_data['email']).lower()
-        code = clean_text(serializer.validated_data['code'])
-
-        verification = (
-            EmailVerificationCode.objects
-            .filter(email__iexact=email, purpose='register', is_used=False)
-            .order_by('-created_at')
-            .first()
-        )
-
-        if not verification:
-            return Response(
-                {'message': 'Код подтверждения не найден'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if verification.is_expired():
-            return Response(
-                {'message': 'Срок действия кода истёк'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if verification.code != code:
-            return Response(
-                {'message': 'Неверный код подтверждения'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if User.objects.filter(email__iexact=email).exists():
-            return Response(
-                {'message': 'Пользователь с таким email уже существует'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            user = User.objects.create_user(
-                username=email,
-                email=email,
-                password=verification.payload_password,
-                first_name=clean_text(verification.payload_name),
-            )
-            UserProfile.objects.create(
-                user=user,
-                phone=clean_text(verification.payload_phone),
-            )
-            verification.user = user
-            verification.is_used = True
-            verification.save(update_fields=['user', 'is_used'])
-
-            create_notification(
-                user=user,
-                email=email,
-                title='Регистрация подтверждена',
-                message='Ваш аккаунт успешно подтверждён и активирован.',
-                notification_type='auth',
-            )
-
         return Response(
-            {
-                'message': 'Регистрация успешно подтверждена',
-                'user': serialize_user(user),
-            },
-            status=status.HTTP_201_CREATED,
+            {'message': 'Подтверждение по коду отключено'},
+            status=status.HTTP_410_GONE,
         )
 
 
